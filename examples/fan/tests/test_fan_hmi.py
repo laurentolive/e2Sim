@@ -149,15 +149,20 @@ def scenario(sim):
     key(sim, "BTN_PLUS")
     sim.model("TempSensor").temp_C = 65.0
     sim.run(s=2)
+    sim.model("TempSensor").temp_C = 30.0
+    sim.run(s=30)
 
 
 @e2sim.requirement("E2SIM-DETERMINISM")
-def test_t00_determinism(e2sim_board, e2sim_toolchain, tmp_path):
-    digests, screens = [], []
-    for i in range(2):
+def test_t00_determinism(e2sim_board, e2sim_toolchain, tmp_path, monkeypatch):
+    """Same scenario: same trace, run after run, and with long runs as quantum by quantum."""
+    results = []
+    for i, fixed in enumerate((False, False, True)):
         with e2sim.Sim(e2sim_board, toolchain=e2sim_toolchain, work_dir=tmp_path / str(i)) as sim:
+            if fixed:
+                run = sim.run
+                monkeypatch.setattr(sim, "run", lambda **kw: run(fixed=True, **kw))
             scenario(sim)
-            digests.append(sim.trace_digest())
-            screens.append(sim["LCD"].read_block())
-    assert digests[0] == digests[1]
-    assert screens[0] == screens[1]
+            results.append((sim.trace_digest(), sim["LCD"].read_block(), sim.now_ns))
+    assert results[0] == results[1]
+    assert results[0] == results[2], "long runs must give the quantum by quantum result"

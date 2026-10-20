@@ -94,9 +94,11 @@ class Instance:
             self.proc = None
 
     # ------------------------------------------------------------------
-    def run(self, until_ns: int, records: bytes) -> proto.Done:
-        """One quantum: inputs (records) applied, run until until_ns, outputs returned."""
-        self.link.send(proto.MSG_RUN, proto.Writer().u64(until_ns).b + records + bytes([proto.REC_END]))
+    def run(self, until_ns: int, records: bytes, from_ns: int = 0, quantum_ns: int = 0) -> proto.Done:
+        """Inputs (records) applied, run until until_ns, outputs returned. quantum_ns != 0: quanta from from_ns,
+        stop at the end of the first quantum with an output (Done.end)."""
+        hdr = proto.Writer().u64(until_ns).u64(from_ns).u64(quantum_ns).b
+        self.link.send(proto.MSG_RUN, hdr + records + bytes([proto.REC_END]))
         while True:
             t, r = self.link.recv()
             if t == proto.MSG_DONE:

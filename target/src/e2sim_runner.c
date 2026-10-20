@@ -425,7 +425,8 @@ static uint64_t next_timer(void)
     return d;
 }
 
-static void run_until(uint64_t until)
+/* one quantum (or up to until): same code path as one RUN of the host */
+static void run_slice(uint64_t until)
 {
     g.quantum_end = until;
     for (;;)
@@ -470,6 +471,23 @@ static void run_until(uint64_t until)
         g.in_fiber = true;
         SwitchToFiber(g.app_fiber);
         g.in_fiber = false;
+    }
+}
+
+/* run quantum after quantum from the host boundary 'from', until 'until' or the end of the first quantum
+   that produced a record (output, stream, log, reset...): exactly as if the host had sent one empty RUN
+   per quantum, without the round trips. q = 0: one slice. Returns the boundary reached. */
+static uint64_t run_until(uint64_t from, uint64_t until, uint64_t q)
+{
+    uint64_t end = ((q != 0u) && (from + q < until)) ? from + q : until;
+    for (;;)
+    {
+        run_slice(end);
+        if ((end >= until) || (g.done.n != 0u)) /* records of the RUN itself (reset...) included */
+        {
+            return end;
+        }
+        end = (end + q < until) ? end + q : until;
     }
 }
 
@@ -774,6 +792,9 @@ static void handle_run(void)
 {
     rbuf_t r = {g.rx.p, g.rx.n, 0, 0};
     uint64_t until = rbuf_u64(&r);
+    uint64_t from = rbuf_u64(&r);
+    uint64_t quantum = rbuf_u64(&r);
+    uint64_t end = until;
     wbuf_reset(&g.done);
 
     for (;;)
@@ -902,7 +923,7 @@ static void handle_run(void)
 
     if (until > g.now)
     {
-        run_until(until);
+        end = run_until(from, until, quantum);
     }
     else
     {
@@ -916,6 +937,7 @@ static void handle_run(void)
 
     wbuf_reset(&g.tx);
     wbuf_u64(&g.tx, g.now);
+    wbuf_u64(&g.tx, end);
     wbuf_u8(&g.tx, g.powered ? 1u : 0u);
     wbuf_u8(&g.tx, g.halted ? 1u : 0u);
     wbuf_bytes(&g.tx, g.done.p, g.done.n);

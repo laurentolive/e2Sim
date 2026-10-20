@@ -202,9 +202,12 @@ class InstanceState:
         self.events_tx.clear()
         return bytes(w.b)
 
-    def exchange(self, until_ns: int, extra: bytes = b""):
-        done = self.inst.run(until_ns, self.records() + extra)
+    def exchange(self, until_ns: int, extra: bytes = b"", quantum_ns: int = 0) -> int:
+        """Returns the boundary reached (< until_ns: a long run stopped on an output)."""
+        self.sim._run_from = self.sim.now_ns
+        done = self.inst.run(until_ns, self.records() + extra, self.sim.now_ns, quantum_ns)
         self.apply(done)
+        return done.end if quantum_ns else until_ns
 
     def _outputs_cleared(self):
         for p in self.ports.values():
@@ -272,6 +275,10 @@ class InstanceState:
                 fn() if p.type == "event" else fn(v)
 
     def on_xfer(self, cls: int, idx: int, t: int, tx: bytes) -> tuple[bytes, int]:
+        # models see the start of the quantum of the transaction, as in fixed quantum stepping
+        sim = self.sim
+        if t > sim._run_from:
+            sim.now_ns = sim._run_from + (t - sim._run_from) // sim.quantum_ns * sim.quantum_ns
         p = self.port(cls, idx)
         rx = None
         for model, attr in p.listeners:
@@ -332,6 +339,8 @@ class Sim:
         self._actions: list[tuple[int, int, Callable]] = []
         self._seq = 0
         self._periodic: list[list] = []   # [next_ns, period_ns, fn]
+        self._run_from = 0
+        self.max_run_ns = 1_000_000_000   # longest run without host round trip (run())
         self.instances: list[InstanceState] = [InstanceState(self, self.board.name, self.board)]
         self.toolchain: toolchains.Toolchain | None = None
         self.started = False
@@ -435,11 +444,31 @@ class Sim:
         self._actions.sort()
 
     def step(self):
+        """One quantum."""
+        self._advance(self.now_ns + self.quantum_ns, long_run=False)
+
+    def _next_host_event(self, limit: int) -> int:
+        t = limit
+        if self._actions:
+            t = min(t, self._actions[0][0])
+        for task in self._periodic:
+            t = min(t, task[0])
+        for st in self.instances:
+            if st._latch_low_since is not None:
+                t = min(t, st._latch_low_since + st.board.power.hold_ns)
+        q = self.quantum_ns
+        t = self.now_ns + max(q, -(-(t - self.now_ns) // q) * q)  # next boundary >= t
+        return min(t, max(limit, self.now_ns + q))
+
+    def _advance(self, until: int, long_run: bool):
         if not self.started:
             self.start()
-        until = self.now_ns + self.quantum_ns
-        for st in self.instances:
-            st.exchange(until)
+        if long_run and len(self.instances) == 1:
+            until = self._next_host_event(until)
+            until = self.instances[0].exchange(until, quantum_ns=self.quantum_ns)
+        else:
+            for st in self.instances:
+                st.exchange(until)
         self.now_ns = until
         while self._actions and self._actions[0][0] <= self.now_ns:
             self._actions.pop(0)[2]()
@@ -450,10 +479,15 @@ class Sim:
         for st in self.instances:
             st.power_check()
 
-    def run(self, s: float = 0, ms: float = 0, us: float = 0):
+    def run(self, s: float = 0, ms: float = 0, us: float = 0, fixed: bool = False):
+        """Run for a duration. Several quanta per host round trip, stopped on any firmware output and at
+        every host event: same result as quantum by quantum (fixed=True), faster."""
         end = self.now_ns + _ns(s, ms, us)
         while self.now_ns < end:
-            self.step()
+            if fixed:
+                self.step()
+            else:
+                self._advance(min(end, self.now_ns + self.max_run_ns), long_run=True)
 
     def run_until(self, cond: Callable[[], bool], timeout_s: float = 10.0, desc: str = "") -> float:
         """Run until cond() is true; returns the virtual time spent (s); SimTimeout after timeout_s."""

@@ -6,7 +6,7 @@ import socket
 import struct
 from dataclasses import dataclass, field
 
-WIRE_VERSION = 1
+WIRE_VERSION = 2
 
 MSG_HELLO = 0x01
 MSG_DONE = 0x02
@@ -139,6 +139,7 @@ class Link:
 class Done:
     """Decoded MSG_DONE: records in firmware order (order matters: a reset clears the outputs)."""
     now: int
+    end: int          # quantum boundary reached
     powered: bool
     halted: bool
     records: list = field(default_factory=list)
@@ -147,7 +148,7 @@ class Done:
 
 
 def decode_done(r: Reader) -> Done:
-    d = Done(now=r.u64(), powered=bool(r.u8()), halted=bool(r.u8()))
+    d = Done(now=r.u64(), end=r.u64(), powered=bool(r.u8()), halted=bool(r.u8()))
     add = d.records.append
     while True:
         rec = r.u8()
