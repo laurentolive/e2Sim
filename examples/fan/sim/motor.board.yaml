@@ -1,0 +1,18 @@
+# Fan example - motor board on e2Sim
+name: fan_motor
+firmware: ../build/{toolchain}/fan_motor.dll
+quantum_ms: 1
+power: { mode: auto }
+
+ports:
+  ENABLE:      { class: GPIO,    idx: HAL_GPIO_ENABLE,      type: bit,   dir: in }
+  LED:         { class: GPIO,    idx: HAL_GPIO_LED,         type: bit,   dir: out }
+  PWM_MOTOR:   { class: PWM,     idx: HAL_PWM_MOTOR,        type: value, dir: out }
+  TACHO:       { class: CAPTURE, idx: HAL_CAPTURE_TACHO,    type: value, dir: in }
+  CURRENT_ADC: { class: ADC,     idx: HAL_ADC_CURRENT,      type: value, dir: in }
+  FAULT_IN:    { class: EVENT,   idx: HAL_EXTI_OVERCURRENT, type: event, dir: in }
+  UART_LINK:   { class: UART,    idx: HAL_UART_LINK,        type: stream }
+
+models:
+  - class: models.motor.Motor
+    ports: { pwm: PWM_MOTOR, tacho: TACHO, current: CURRENT_ADC, comparator: FAULT_IN }

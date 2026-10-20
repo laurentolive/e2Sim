@@ -1,0 +1,7 @@
+# Fan example - both boards simulated (spec §8): the motor board firmware replaces the MotorBoard model
+instances:
+  hmi:   { board: hmi.board.yaml }
+  motor: { board: motor.board.yaml }
+links:
+  - [hmi.UART_LINK, motor.UART_LINK]   # stream <-> stream
+  - [hmi.MOTOR_EN, motor.ENABLE]       # bit out -> bit in

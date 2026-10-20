@@ -26,4 +26,6 @@ make test          # toolchain par défaut
 make test-all      # host32 et host64 (mêmes références d'écran)
 ```
 
-V1 : carte moteur `fan_motor` (PWM, tachymètre, EXTI, eScope embarqué) et `system.yaml` à deux firmwares.
+**Carte moteur `fan_motor`** : régulation PI de vitesse sur tachymètre, PWM, comparateur de courant sur
+interruption externe, surintensité logicielle, rotor bloqué. `sim/system.yaml` simule les deux cartes : le
+firmware moteur remplace alors le modèle `MotorBoard`.

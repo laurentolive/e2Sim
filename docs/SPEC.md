@@ -1,4 +1,4 @@
-# e2Sim — Spécification v0.8
+# e2Sim — Spécification v0.9
 
 > Simulateur de firmware embarqué sur PC : le code applicatif tourne en natif au-dessus d'une HAL simulée,
 > cadencé par un temps virtuel déterministe, piloté par un humain, des scripts ou d'autres firmwares.
@@ -12,7 +12,8 @@ v0.6 licence (§17) ;
 v0.7 reset et power dans le même process, transactions synchrones, index résolus par DWARF, accès mémoire
 par IPC, endpoint eScope dans le host, phasage ajusté, exemples tirés du seul firmware exemple ;
 v0.8 décisions d'implémentation V0 : firmware en DLL chargée par un runner générique (reset = rechargement de la
-DLL), durée de reset, verrou d'alimentation dans `board.yaml`, API `e2sim.h` alignée sur le code
+DLL), durée de reset, verrou d'alimentation dans `board.yaml`, API `e2sim.h` alignée sur le code ;
+v0.9 runs longs équivalents au pas fixe, multi-firmware livré au quantum suivant, vitesse mesurée
 
 ---
 
@@ -127,6 +128,13 @@ Seule la couche la plus basse change : l'**adaptateur HAL** (§5.2) remplace l'i
   Une entrée host est vue avec ≤ 1 quantum de latence — acceptable au niveau données.
   Les octets stream reçus sont délivrés au firmware à leur date (décalée d'un quantum).
 - Exception : les **transactions synchrones** (§5.1) sont servies au milieu du quantum, temps arrêté.
+- **Runs longs** (une instance, `sim.run()`) : le runner enchaîne les quanta sans aller-retour avec le host et
+  s'arrête à la fin du premier quantum qui a produit une sortie (ou un log, un reset) ; le host plafonne le run
+  à sa prochaine échéance (action programmée, tâche périodique d'un modèle, délai du verrou d'alimentation).
+  Le firmware passe par chaque frontière de quantum : le résultat est **identique au pas fixe** (vérifié par
+  T00), seul le nombre d'allers-retours change. Mesuré sur `fan_hmi` : ×14 au pas fixe de 1 ms, ×97 en runs
+  longs (limités ici par les modèles à 10 ms et la trame IHM à 100 ms). `run_until()` reste au pas fixe : sa
+  condition peut dépendre de variables qui changent sans sortie.
 - **Modes** : `max` (aussi vite que possible : CI, endurance), `realtime ×k` (humain),
   `step` (pas à pas en quantums), `pause`.
 - **Détection de blocage** : pas de yield pendant N s d'horloge murale (hors debugger attaché)
@@ -363,7 +371,9 @@ links:
   - [hmi.UART_LINK, motor.UART_LINK]       # stream ↔ stream
   - [hmi.MOTOR_EN,  motor.ENABLE]          # bit out → bit in
 ```
-- Le host avance toutes les instances au même T (quantum commun), puis échange les deltas et les streams.
+- Le host avance toutes les instances au même T (quantum commun, pas de runs longs), puis échange les deltas
+  et les streams. Les sorties d'une instance sont livrées aux autres **au quantum suivant**, quel que soit
+  l'ordre d'exécution des instances : pas de causalité inversée.
 - **Latence** : un échange entre deux firmwares passe par le host à la frontière du quantum, soit
   ≈ 1 quantum par sens. Les timeouts des protocoles inter-cartes doivent dépasser **2 quanta** ; sinon,
   réduire `quantum_ms` pour le système.
@@ -535,7 +545,7 @@ bloc) et éventuels accès registres hors HAL, à signaler comme dette d'archite
 ## 12. Gains attendus
 - Développement et démos avant disponibilité du matériel ; validation UX avec le marketing.
 - Debug PC : pas à pas, watch, attach conservé à travers les resets ; reproduction exacte par replay.
-- Tests système en CI (Jenkins, headless, mode `max`) ; endurance de plusieurs heures en quelques secondes.
+- Tests système en CI (Jenkins, headless, mode `max`) ; endurance accélérée (×100 environ sur l'exemple : 10 min virtuelles en 6 s ; à adapter aux périodes des modèles).
 - Injection de fautes difficile sur banc : NVM corrompue, carte voisine muette, trames invalides, reset watchdog.
 - Non-régression écran : comparaison du framebuffer avec des références, toutes langues ; captures pour la doc.
 - eScope sur tout firmware simulé, sans intégration.
@@ -631,7 +641,7 @@ examples/fan/
 | Port `value` out (PWM) | duty `PWM_MOTOR` lu par le modèle moteur | T07 |
 | Port `event` (EXTI) | `FAULT_IN` surintensité → arrêt d'urgence | T08 |
 | Multi-firmware | V1 : `fan_hmi` ↔ `fan_motor` via `system.yaml` | T09 |
-| Temps accéléré | 1000 h de fonctionnement en mode `max` → compteur d'heures | T10 |
+| Temps accéléré | 10 min de fonctionnement en runs longs → compteur de minutes en NVM | T10 |
 | Injection de fautes | trames corrompues, moteur bloqué, EEPROM corrompue (CRC) | T08, T11 |
 | Record / replay | rejouer T09 et comparer les sorties au bit près | T12 |
 | `sim.var()` | variables de régulation (`motor.rpm_cmd`, `motor.rpm_meas`) | T13 |

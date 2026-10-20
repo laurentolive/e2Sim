@@ -8,11 +8,16 @@
 E2SIM_ROOT := ../..
 include $(E2SIM_ROOT)/mk/e2sim.mk
 
-HAL_E2SIM := $(wildcard hal_e2sim/*.c)
-COMMON    := $(wildcard common/*.c)
-INCS      := hal hal_e2sim common
+COMMON := $(wildcard common/*.c)
+INCS   := hal hal_e2sim common
 
-$(eval $(call e2sim_firmware,fan_hmi,$(wildcard fan_hmi/*.c) $(COMMON) $(HAL_E2SIM),fan_hmi $(INCS),))
+# HAL modules used by each board (e2Sim adapter)
+HAL_CORE  := halMcu halGpio halAdc halTimer halUart halWdt
+HAL_HMI   := $(addprefix hal_e2sim/,$(addsuffix .c,$(HAL_CORE) halSpi halNvm halLcd))
+HAL_MOTOR := $(addprefix hal_e2sim/,$(addsuffix .c,$(HAL_CORE) halPwm halCapture halExti))
+
+$(eval $(call e2sim_firmware,fan_hmi,$(wildcard fan_hmi/*.c) $(COMMON) $(HAL_HMI),fan_hmi $(INCS),))
+$(eval $(call e2sim_firmware,fan_motor,$(wildcard fan_motor/*.c) $(COMMON) $(HAL_MOTOR),fan_motor $(INCS),))
 
 .DEFAULT_GOAL := all
 all: $(E2SIM_FIRMWARES)

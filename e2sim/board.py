@@ -131,3 +131,44 @@ def load(path: str | Path) -> Board:
                  toolchain=d.get("toolchain"), quantum_ns=round(float(d.get("quantum_ms", 1)) * 1e6),
                  yield_cost_ns=int(cpu.get("yield_cost_ns", 1000)), reset=reset, power=power, ports=ports,
                  models=models, gui=d.get("gui") or {}, escope=d.get("escope") or {})
+
+
+@dataclass
+class System:
+    file: Path
+    instances: list[tuple[str, Board]]
+    links: list[tuple[tuple[str, str], tuple[str, str]]]
+
+
+def load_system(path: str | Path) -> System:
+    """system.yaml (several boards and their links, spec §8), or a board.yaml alone."""
+    file = Path(path).resolve()
+    try:
+        d = yaml.safe_load(file.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as e:
+        raise BoardError(f"{file}: {e}") from None
+    if "instances" not in d:
+        b = load(file)
+        return System(file=file, instances=[(b.name, b)], links=[])
+    instances = []
+    for name, spec in (d.get("instances") or {}).items():
+        if "." in name or ":" in name:
+            _err(file, f"instance {name}: '.' and ':' not allowed in a name")
+        if not spec or "board" not in spec:
+            _err(file, f"instance {name}: 'board' missing")
+        instances.append((name, load(file.parent / spec["board"])))
+    if not instances:
+        _err(file, "no instance")
+    boards = dict(instances)
+    links = []
+    for link in d.get("links") or []:
+        if len(link) != 2:
+            _err(file, f"link {link}: [instance.PORT, instance.PORT] expected")
+        ends = []
+        for end in link:
+            inst, _, port = str(end).partition(".")
+            if inst not in boards or port not in boards[inst].ports:
+                _err(file, f"link {link}: {end} unknown")
+            ends.append((inst, port))
+        links.append(tuple(ends))
+    return System(file=file, instances=instances, links=links)

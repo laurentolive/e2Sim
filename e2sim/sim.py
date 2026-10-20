@@ -49,6 +49,7 @@ class Port:
         self.responder: Callable[[bytes], bytes] | None = None  # xfer without model
         self.mm: mmap.mmap | None = None
         self.listeners: list[Callable] = []         # models bound to this port
+        self.links: list[Port] = []                 # ports of other instances fed by this one (system.yaml)
 
     # -- bit / value ---------------------------------------------------
     def get(self) -> int:
@@ -214,6 +215,8 @@ class InstanceState:
             if p.spec.dir != "in" and p.type in ("bit", "value") and p.value != 0 and (p.cls, p.idx) not in self.sent:
                 p.value = 0
                 p.history.append((self.sim.now_ns, 0))
+                for dst in p.links:
+                    self.sim._deliveries.append(("value", dst, 0))
 
     def apply(self, done: proto.Done):
         was_powered = self.powered
@@ -226,17 +229,23 @@ class InstanceState:
                 p.history.append((t, v))
                 self.sim.trace.append((t, self.name, p.name, v))
                 self._notify(p, v)
+                for dst in p.links:
+                    self.sim._deliveries.append(("value", dst, v))
             elif kind == "stream":
                 _, idx, t, data = rec
                 p = self.port(proto.CLASSES["UART"], idx)
                 p.rx += data
                 self.sim.trace.append((t, self.name, p.name, data))
                 self._notify(p, data)
+                for dst in p.links:
+                    self.sim._deliveries.append(("stream", dst, data))
             elif kind == "event":
                 _, idx, t = rec
                 p = self.port(proto.CLASSES["EVENT"], idx)
                 self.sim.trace.append((t, self.name, p.name, None))
                 self._notify(p, None)
+                for dst in p.links:
+                    self.sim._deliveries.append(("event", dst, None))
             elif kind == "block":
                 _, idx, size, name = rec
                 p = self.port(proto.CLASSES["BLOCK"], idx)
@@ -317,6 +326,45 @@ class InstanceState:
         self.control.append(bytes(proto.Writer().u8(proto.REC_POWER).u8(1 if on else 0).b))
         self.powered = on  # host view, confirmed by the next DONE
 
+    # -- API of one instance: sim.instance("motor")["PWM_MOTOR"], .var(), .model() ------------
+    def __getitem__(self, name: str) -> Port:
+        try:
+            return self.ports[name]
+        except KeyError:
+            raise KeyError(f"{self.name}: port {name} unknown ({', '.join(self.ports)})") from None
+
+    def model(self, name: str) -> Model:
+        for m in self.models:
+            if m.name == name:
+                return m
+        raise KeyError(f"{self.name}: model {name} unknown ({', '.join(m.name for m in self.models) or 'none'})")
+
+    def power_on(self):
+        self.request_power(True)
+
+    def power_off(self):
+        self.request_power(False)
+
+    def reset(self, cause: str = "host"):
+        self.control.append(bytes(proto.Writer().u8(proto.REC_RESET_IN).u8(proto.RESET_CODES[cause]).b))
+
+    def var(self, expr: str) -> Any:
+        info = self.symbols.var(expr)
+        mid = self.inst.next_mem_id()
+        status, data = self.mem(proto.Writer().u8(proto.REC_MEM_READ).u32(mid).u64(self.inst.relocate(info.addr))
+                                .u32(info.size), mid)
+        if status != proto.MEM_OK:
+            raise SimError(f"{self.name}: {expr}: address refused by the firmware process")
+        return _decode(info, data)
+
+    def set_var(self, expr: str, value: Any):
+        info = self.symbols.var(expr)
+        mid = self.inst.next_mem_id()
+        status, _ = self.mem(proto.Writer().u8(proto.REC_MEM_WRITE).u32(mid).u64(self.inst.relocate(info.addr))
+                             .data(_encode(info, value)), mid)
+        if status != proto.MEM_OK:
+            raise SimError(f"{self.name}: {expr}: address refused by the firmware process")
+
     # -- memory ---------------------------------------------------------
     def mem(self, rec: proto.Writer, mid: int) -> tuple[int, bytes]:
         self.exchange(self.sim.now_ns, bytes(rec.b))  # zero time: between two quanta
@@ -328,7 +376,8 @@ class Sim:
 
     def __init__(self, board: str | Path, *, toolchain: str | None = None, work_dir: str | Path | None = None,
                  connect: int | None = None, timeout_s: float = 10.0):
-        self.board = board_mod.load(board)
+        self.system = board_mod.load_system(board)
+        self.board = self.system.instances[0][1]
         self.toolchain_name = toolchain or os.environ.get("E2SIM_TOOLCHAIN") or self.board.toolchain
         self.work_dir = Path(work_dir) if work_dir else self.board.dir / "out"
         self.connect = connect
@@ -341,7 +390,8 @@ class Sim:
         self._periodic: list[list] = []   # [next_ns, period_ns, fn]
         self._run_from = 0
         self.max_run_ns = 1_000_000_000   # longest run without host round trip (run())
-        self.instances: list[InstanceState] = [InstanceState(self, self.board.name, self.board)]
+        self.instances: list[InstanceState] = [InstanceState(self, n, b) for n, b in self.system.instances]
+        self._deliveries: list[tuple[str, Port, Any]] = []
         self.toolchain: toolchains.Toolchain | None = None
         self.started = False
 
@@ -396,6 +446,7 @@ class Sim:
             st.inst.xfer_handler = st.on_xfer
             self._load_models(st)
             st.inst.start()
+        self._resolve_links()
         self.started = True
         for st in self.instances:
             for m in st.models:
@@ -405,10 +456,34 @@ class Sim:
             st.power_check()
             st.exchange(0)
 
+    def _resolve_links(self):
+        by_name = {st.name: st for st in self.instances}
+        for a, b in self.system.links:
+            pa, pb = by_name[a[0]][a[1]], by_name[b[0]][b[1]]
+            what = f"link {'.'.join(a)} - {'.'.join(b)}"
+            if pa.type != pb.type:
+                raise SimError(f"{what}: types differ ({pa.type}, {pb.type})")
+            if pa.type == "stream":
+                pa.links.append(pb)
+                pb.links.append(pa)
+            elif pa.type in ("bit", "value", "event"):
+                src, dst = (pa, pb) if pa.spec.dir == "out" else (pb, pa)
+                if src.spec.dir != "out" or dst.spec.dir != "in":
+                    raise SimError(f"{what}: one output and one input expected")
+                src.links.append(dst)
+            else:
+                raise SimError(f"{what}: {pa.type} ports cannot be linked")
+
+    def _linked_ports(self, st: InstanceState) -> set[str]:
+        return {port for link in self.system.links for inst, port in link if inst == st.name}
+
     def _load_models(self, st: InstanceState):
         if str(st.board.dir) not in sys.path:
             sys.path.insert(0, str(st.board.dir))
+        linked = self._linked_ports(st)
         for ms in st.board.models:
+            if linked & set(ms.ports.values()):
+                continue  # a linked firmware replaces the model (spec §8)
             mod_name, _, cls_name = ms.cls.rpartition(".")
             try:
                 cls = getattr(importlib.import_module(mod_name), cls_name)
@@ -466,10 +541,20 @@ class Sim:
         if long_run and len(self.instances) == 1:
             until = self._next_host_event(until)
             until = self.instances[0].exchange(until, quantum_ns=self.quantum_ns)
-        else:
+        else:  # linked instances: quantum by quantum, all at the same time
+            until = min(until, self.now_ns + self.quantum_ns)
             for st in self.instances:
                 st.exchange(until)
         self.now_ns = until
+        # outputs of linked instances reach their destination at the next quantum (spec §8)
+        for kind, dst, v in self._deliveries:
+            if kind == "value":
+                dst.value = v
+            elif kind == "stream":
+                dst._inst.stream_tx.append((dst.idx, v))
+            else:
+                dst._inst.events_tx.append(dst.idx)
+        self._deliveries.clear()
         while self._actions and self._actions[0][0] <= self.now_ns:
             self._actions.pop(0)[2]()
         for task in self._periodic:
@@ -509,26 +594,39 @@ class Sim:
                 time.sleep(ahead)
 
     # -- access -------------------------------------------------------------
+    def instance(self, name: str | None = None) -> InstanceState:
+        if not self.started:
+            self.start()
+        if name is None:
+            if len(self.instances) != 1:
+                raise SimError(f"several instances ({', '.join(st.name for st in self.instances)}): sim.instance(name)")
+            return self.instances[0]
+        for st in self.instances:
+            if st.name == name:
+                return st
+        raise KeyError(f"instance {name} unknown ({', '.join(st.name for st in self.instances)})")
+
     def _single(self) -> InstanceState:
-        return self.instances[0]
+        return self.instance()
 
     def __getitem__(self, name: str) -> Port:
-        if not self.started:
-            self.start()
-        st = self._single()
-        try:
-            return st.ports[name]
-        except KeyError:
-            raise KeyError(f"port {name} unknown ({', '.join(st.ports)})") from None
+        """sim["PORT"] (one firmware) or sim["instance.PORT"]."""
+        inst, dot, port = name.partition(".")
+        if dot:
+            return self.instance(inst)[port]
+        return self._single()[name]
 
     def model(self, name: str) -> Model:
+        """sim.model("Name") or sim.model("instance.Name")."""
         if not self.started:
             self.start()
-        for st in self.instances:
-            for m in st.models:
-                if m.name == name:
-                    return m
-        raise KeyError(f"model {name} unknown")
+        inst, dot, model = name.partition(".")
+        if dot:
+            return self.instance(inst).model(model)
+        found = [m for st in self.instances for m in st.models if m.name == name]
+        if not found:
+            raise KeyError(f"model {name} unknown")
+        return found[0]
 
     @property
     def powered(self) -> bool:
@@ -543,36 +641,26 @@ class Sim:
         return self._single().logs
 
     def power_on(self):
-        self._single().request_power(True)
+        self._single().power_on()
 
     def power_off(self):
-        self._single().request_power(False)
+        self._single().power_off()
 
     def reset(self, cause: str = "host"):
-        self._single().control.append(bytes(proto.Writer().u8(proto.REC_RESET_IN).u8(proto.RESET_CODES[cause]).b))
+        self._single().reset(cause)
 
     # -- firmware variables (spec §7.2) -------------------------------------
     def var(self, expr: str) -> Any:
-        st = self._single()
-        if not self.started:
-            self.start()
-        info = st.symbols.var(expr)
-        mid = st.inst.next_mem_id()
-        status, data = st.mem(proto.Writer().u8(proto.REC_MEM_READ).u32(mid).u64(st.inst.relocate(info.addr))
-                              .u32(info.size), mid)
-        if status != proto.MEM_OK:
-            raise SimError(f"{expr}: address refused by the firmware process")
-        return _decode(info, data)
+        """sim.var("app.x") (one firmware) or sim.var("instance:app.x")."""
+        inst, colon, e = expr.partition(":")
+        return self.instance(inst).var(e) if colon else self._single().var(expr)
 
     def set_var(self, expr: str, value: Any):
-        st = self._single()
-        info = st.symbols.var(expr)
-        data = _encode(info, value)
-        mid = st.inst.next_mem_id()
-        status, _ = st.mem(proto.Writer().u8(proto.REC_MEM_WRITE).u32(mid).u64(st.inst.relocate(info.addr))
-                           .data(data), mid)
-        if status != proto.MEM_OK:
-            raise SimError(f"{expr}: address refused by the firmware process")
+        inst, colon, e = expr.partition(":")
+        if colon:
+            self.instance(inst).set_var(e, value)
+        else:
+            self._single().set_var(expr, value)
 
     def trace_digest(self) -> str:
         """Hash of every output, stream, reset and power event: equal runs give equal digests."""
