@@ -1,0 +1,39 @@
+# Build (make, GCC MinGW i686 / x86_64)
+build/
+*.o
+*.d
+*.a
+*.exe
+*.dll
+*.map
+*.elf
+*.gcno
+*.gcda
+compile_commands.json
+
+# Configuration propre à la machine (registre de toolchains, §10.1)
+toolchains.yaml
+toolchains.local.yaml
+esim.local.mk
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Données produites par les simulations
+*.esimrec
+*.nvm.bin
+out/
+reports/
+
+# Éditeurs / OS
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+.vs/
+*.swp
+Thumbs.db
+.DS_Store
