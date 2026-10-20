@@ -17,6 +17,7 @@ Command line, configuration files, Python API, pytest plugin and target API. Tut
 | `license [status\|choose\|activate [KEY]\|deactivate\|check\|buy\|portal]` | license |
 | `toolchain list` / `toolchain mk [NAME] --dir DIR` | toolchains of `e2sim_toolchains.yaml` / fragment for make |
 | `coverage BUILD_DIR [--sources DIR] [--html DIR]` | coverage of the firmware (build `COVERAGE=1`, then run the tests): summary + annotated HTML |
+| `extract (--make CMD [--cwd DIR] \| --compdb FILE) --name NAME [--exclude GLOB]… [--adapter DIR]… [--drop-define NAME]… [--out FILE]` | sources, `-I`, `-D` of the target build (dry run `make -n -B -w`, or compile_commands.json) → make fragment `NAME_SRCS / _INCS / _DEFS` + `e2sim_firmware` call; MCU HAL / BSP excluded by glob, adapter sources added |
 | `root` | directory of the SDK (`target/`, `mk/`): `E2SIM_ROOT` of the makefiles |
 | `fs mkdir\|rm PATHS` | portable file operations for the makefiles |
 

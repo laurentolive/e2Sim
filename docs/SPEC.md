@@ -528,8 +528,8 @@ chemin du gdb est reporté dans `.vscode/launch.json`. Les sorties sont séparé
 - Le firmware peut être lancé **depuis le debugger** avec `--wait-host` ; le host s'y connecte avec `e2sim connect`.
 - Quand un debugger est attaché, les timeouts (détection de blocage, watchdog) sont suspendus.
 - Le debugger reste attaché à travers les resets et les cycles d'alimentation (§4.4).
-- La liste des sources est d'abord écrite à la main dans le makefile e2Sim du projet ; un outil
-  d'extraction depuis le makefile cible viendra plus tard.
+- La liste des sources s'écrit à la main dans le makefile e2Sim du projet, ou s'extrait du build cible :
+  `e2sim extract` (dry run `make -n -B -w` ou `compile_commands.json` ; HAL MCU et BSP exclus par motifs).
 
 ---
 
@@ -674,6 +674,7 @@ cité existe, chaque test de l'exemple porte une exigence.
 | Forçage d'une entrée pilotée par un modèle (`force` / `release`) | `VBAT_ADC` forcé à 0 | T16 | 6 |
 | Débit d'une ligne série (`baud:`) | `UART_DEBUG` à 9600, liaison moteur saturée à 300 | T18 | — |
 | Index de `board.yaml` par enum ou `#define` (DWARF, `-g3`) | `UART_DEBUG` = `HAL_UART_TERMINAL` | T19 | — |
+| Extraction des sources du build cible (`e2sim extract`) | makefile ARM factice, compile_commands.json | selftest (test_extract_from_make) | — |
 | Fuzzing des parseurs de trames (`e2sim.fuzz`) | protocole IHM ↔ moteur, des deux côtés | T20 | — |
 | Couverture de code gcov des tests système | `make coverage` : 93 % des lignes des deux firmwares | selftest (test_coverage_report) | — |
 | Diagnostic « boucle sans yield point » avec la pile | firmware de selftest (`hang_here`) : bug volontaire hors de l'exemple | selftest (test_hang_report_sim) | — |

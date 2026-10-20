@@ -80,6 +80,14 @@ $(eval $(call e2sim_firmware,mon_produit,$(SRCS),$(INCS),MON_DEFINE=1))
 all: $(E2SIM_FIRMWARES)
 ```
 
+Plus vite, depuis le build cible (rien n'est compilé, pas besoin du compilateur ARM) :
+
+```
+e2sim extract --make "make -C ../firmware" --exclude "*/Hw/MCU/*" --exclude "*/BSP/*" \n              --adapter Hw/MCU/E2SIM --name mon_produit --out e2sim_sources.mk
+```
+
+puis `include e2sim_sources.mk` après `mk/e2sim.mk` (ou `--compdb compile_commands.json`).
+
 `make` produit, pour la toolchain par défaut de `e2sim_toolchains.yaml`, `build/host32/mon_produit.dll` et le
 runner. `make TOOLCHAIN=host64` produit la variante 64 bits. Votre `main()` est renommé `e2sim_app_main` par le
 build : les sources ne sont pas touchées.

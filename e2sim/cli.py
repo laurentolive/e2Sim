@@ -57,6 +57,24 @@ def cmd_coverage(args) -> int:
     return 0
 
 
+def cmd_extract(args) -> int:
+    from . import extract
+
+    if bool(args.make) == bool(args.compdb):
+        print("e2sim: --make or --compdb expected", file=sys.stderr)
+        return 2
+    compiles = (extract.from_make(args.make, Path(args.cwd)) if args.make
+                else extract.from_compdb(Path(args.compdb)))
+    out = Path(args.out)
+    text = extract.make_fragment(compiles, args.name, out.parent, exclude=args.exclude or [],
+                                 adapter=[Path(a) for a in args.adapter or []], drop_defines=args.drop_define or [])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, encoding="utf-8")
+    print(text.splitlines()[0])
+    print(f"e2sim: {out}")
+    return 0
+
+
 def cmd_root(args) -> int:
     print(sdk_root().as_posix())
     return 0
@@ -211,6 +229,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--toolchain")
     p.add_argument("--registry")
     p.set_defaults(func=cmd_coverage)
+
+    p = sub.add_parser("extract", help="sources / includes / defines of the target build -> make fragment for e2Sim")
+    p.add_argument("--make", help='target build command, run in dry mode (-n -B -w), e.g. "make -C ../firmware"')
+    p.add_argument("--compdb", help="compile_commands.json of the target build")
+    p.add_argument("--cwd", default=".", help="directory of the --make command")
+    p.add_argument("--exclude", action="append", help='glob of sources / includes to drop, e.g. "*/Hw/MCU/*"')
+    p.add_argument("--adapter", action="append", help="directory of the e2Sim HAL adapter (sources added)")
+    p.add_argument("--drop-define", action="append", help="define to drop (name)")
+    p.add_argument("--name", required=True, help="firmware name (DLL)")
+    p.add_argument("--out", default="e2sim_sources.mk")
+    p.set_defaults(func=cmd_extract)
 
     p = sub.add_parser("root", help="directory of the SDK (target/, mk/): E2SIM_ROOT of the makefiles")
     p.set_defaults(func=cmd_root)
