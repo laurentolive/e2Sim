@@ -6,7 +6,7 @@ import socket
 import struct
 from dataclasses import dataclass, field
 
-WIRE_VERSION = 3
+WIRE_VERSION = 4
 
 MSG_HELLO = 0x01
 MSG_DONE = 0x02

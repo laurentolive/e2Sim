@@ -1091,9 +1091,16 @@ static void handle_config(void)
     g.reset_process = rbuf_u8(&r) != 0u;
     uint64_t start = rbuf_u64(&r);
     uint8_t boot = rbuf_u8(&r);
+    char shm[96];
+    rbuf_str(&r, shm, sizeof(shm));
+    uint32_t host_pid = rbuf_u32(&r);
     if (r.error)
     {
         fatal("malformed CONFIG message");
+    }
+    if ((shm[0] != '\0') && (wire_use_shm(shm, host_pid) != 0))
+    {
+        fatal("cannot open the shared memory %s of the host", shm);
     }
     g.now = start;
     if (boot != 0xFFu) /* new process after a reset (reset_process): boot at once */

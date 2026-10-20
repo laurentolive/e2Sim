@@ -10,7 +10,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define WIRE_VERSION 3u
+#define WIRE_VERSION 4u
+#define WIRE_SHM_SIZE (16u << 20) /* one message at most, each direction */
 
 /* runner -> host */
 #define MSG_HELLO     0x01 /* u32 version, u8 ptr_size, u64 module_base, u32 pid, str dll */
@@ -20,7 +21,8 @@
 
 /* host -> runner */
 #define MSG_CONFIG     0x81 /* u64 yield_cost_ns, u16 nblocks, {u16 idx, u8 fill, str path}...,
-                                u8 reset_process, u64 start_ns, u8 boot_cause (0xFF: none) */
+                                u8 reset_process, u64 start_ns, u8 boot_cause (0xFF: none),
+                                str shm ("": TCP only), u32 host_pid */
 #define MSG_RUN        0x82 /* u64 until, u64 from, u64 quantum (0: one run), records..., REC_END */
 #define MSG_XFER_REPLY 0x83 /* u64 cost_ns, u16 n, bytes */
 #define MSG_QUIT       0x84
@@ -84,6 +86,7 @@ size_t rbuf_str(rbuf_t *r, char *out, size_t max);
 int wire_connect(const char *host, uint16_t port, uint32_t timeout_ms); /* 0: ok */
 int wire_send(uint8_t type, const wbuf_t *payload);                    /* 0: ok */
 int wire_recv(uint8_t *type, wbuf_t *payload);                         /* 0: ok */
+int wire_use_shm(const char *name, uint32_t host_pid);                /* 0: ok; then send / recv in it */
 void wire_close(void);
 
 #endif /* E2SIM_WIRE_H */

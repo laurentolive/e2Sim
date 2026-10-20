@@ -5,12 +5,79 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "e2sim_wire.h"
 
 static SOCKET s_sock = INVALID_SOCKET;
+
+/* shared memory transport (after CONFIG): [u32 len][u8 type][payload] in a view per direction, one event each */
+static uint8_t *s_h2r;
+static uint8_t *s_r2h;
+static HANDLE s_ev_h2r;
+static HANDLE s_ev_r2h;
+static HANDLE s_host_process;
+
+int wire_use_shm(const char *name, uint32_t host_pid)
+{
+    char n[128];
+    snprintf(n, sizeof(n), "%s_map", name);
+    HANDLE map = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, n);
+    if (map == NULL)
+    {
+        return -1;
+    }
+    uint8_t *view = MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, 2u * WIRE_SHM_SIZE);
+    snprintf(n, sizeof(n), "%s_h2r", name);
+    s_ev_h2r = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, n);
+    snprintf(n, sizeof(n), "%s_r2h", name);
+    s_ev_r2h = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, n);
+    s_host_process = OpenProcess(SYNCHRONIZE, FALSE, host_pid);
+    if ((view == NULL) || (s_ev_h2r == NULL) || (s_ev_r2h == NULL) || (s_host_process == NULL))
+    {
+        return -1;
+    }
+    s_h2r = view;
+    s_r2h = view + WIRE_SHM_SIZE;
+    return 0;
+}
+
+static int shm_send(uint8_t type, const wbuf_t *payload)
+{
+    uint32_t len = (uint32_t)payload->n + 1u;
+    if (len + 4u > WIRE_SHM_SIZE)
+    {
+        return -1;
+    }
+    memcpy(&s_r2h[0], &len, 4);
+    s_r2h[4] = type;
+    if (payload->n != 0u)
+    {
+        memcpy(&s_r2h[5], payload->p, payload->n);
+    }
+    return SetEvent(s_ev_r2h) ? 0 : -1;
+}
+
+static int shm_recv(uint8_t *type, wbuf_t *payload)
+{
+    HANDLE h[2] = {s_ev_h2r, s_host_process};
+    if (WaitForMultipleObjects(2, h, FALSE, INFINITE) != WAIT_OBJECT_0)
+    {
+        return -1; /* host process gone */
+    }
+    uint32_t len;
+    memcpy(&len, &s_h2r[0], 4);
+    if ((len == 0u) || (len + 4u > WIRE_SHM_SIZE))
+    {
+        return -1;
+    }
+    *type = s_h2r[4];
+    wbuf_reset(payload);
+    wbuf_bytes(payload, &s_h2r[5], len - 1u);
+    return 0;
+}
 
 /*----------------------------------------------------------------------------*/
 static void wbuf_reserve(wbuf_t *b, size_t extra)
@@ -211,6 +278,10 @@ static int recv_all(uint8_t *p, size_t n)
 
 int wire_send(uint8_t type, const wbuf_t *payload)
 {
+    if (s_r2h != NULL)
+    {
+        return shm_send(type, payload);
+    }
     uint32_t len = (uint32_t)payload->n + 1u;
     uint8_t hdr[5] = {(uint8_t)len, (uint8_t)(len >> 8), (uint8_t)(len >> 16), (uint8_t)(len >> 24), type};
     if (send_all(hdr, sizeof(hdr)) != 0)
@@ -222,6 +293,10 @@ int wire_send(uint8_t type, const wbuf_t *payload)
 
 int wire_recv(uint8_t *type, wbuf_t *payload)
 {
+    if (s_h2r != NULL)
+    {
+        return shm_recv(type, payload);
+    }
     uint8_t hdr[5];
     if (recv_all(hdr, sizeof(hdr)) != 0)
     {

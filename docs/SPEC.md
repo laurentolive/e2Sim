@@ -70,7 +70,7 @@ Seule la couche la plus basse change : l'**adaptateur HAL** (§5.2) remplace l'i
  │  libe2sim-target : ordonnanceur local, timers, IRQ, ports, transactions, NVM,            │
  │                    framebuffer, reset/power, échantillonnage et accès mémoire, log       │
  └──────────────────────────────┬───────────────────────────────────────────────────────────┘
-                                │ TCP localhost (contrôle, deltas de ports, transactions, mémoire)
+                                │ TCP localhost (HELLO, CONFIG) puis mémoire partagée + événements (RUN, DONE…)
                                 │ + mémoire partagée (blocs : framebuffer, NVM)
  ┌──────────────────────────────┴────────────────────────────┐
  │  Host e2Sim (Python)                                      │   TCP eScope V3      ┌──────────┐
@@ -130,6 +130,10 @@ Seule la couche la plus basse change : l'**adaptateur HAL** (§5.2) remplace l'i
   Une entrée host est vue avec ≤ 1 quantum de latence — acceptable au niveau données.
   Les octets stream reçus sont délivrés au firmware à leur date (décalée d'un quantum).
 - Exception : les **transactions synchrones** (§5.1) sont servies au milieu du quantum, temps arrêté.
+- **Transport** : connexion TCP localhost (HELLO, CONFIG, et le mode debugger `--connect`), puis les échanges
+  passent par une mémoire partagée nommée (une vue et un événement Windows par sens ; l'échange alterne
+  strictement). Le runner surveille aussi le process du host. Mesuré : ×15 → ×26 au pas fixe, ×7 → ×14 sur
+  `system.yaml`. `Instance(transport="tcp")` garde le transport TCP seul.
 - **Runs longs** (une instance, `sim.run()`) : le runner enchaîne les quanta sans aller-retour avec le host et
   s'arrête à la fin du premier quantum qui a produit une sortie (ou un log, un reset) ; le host plafonne le run
   à sa prochaine échéance (action programmée, tâche périodique d'un modèle, délai du verrou d'alimentation).

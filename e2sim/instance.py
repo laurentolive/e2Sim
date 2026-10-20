@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 from pathlib import Path
@@ -17,7 +18,7 @@ class Instance:
     def __init__(self, name: str, dll: Path, runner: Path, *, yield_cost_ns: int = 1000,
                  blocks_cfg: list[tuple[int, int, str]] | None = None, timeout_s: float = 10.0,
                  connect_port: int | None = None, log_dir: Path | None = None, reset_process: bool = False,
-                 hang_timeout_s: float = 3.0):
+                 hang_timeout_s: float = 3.0, transport: str = "shm"):
         self.name = name
         self.dll = Path(dll)
         self.runner = Path(runner)
@@ -28,9 +29,11 @@ class Instance:
         self.log_dir = log_dir
         self.reset_process = reset_process
         self.hang_timeout_s = hang_timeout_s
+        self.transport = transport  # "shm" (shared memory after CONFIG) or "tcp"
         self.restarts = 0
         self.proc: subprocess.Popen | None = None
         self.link: proto.Link | None = None
+        self.tcp: proto.Link | None = None  # kept open while the shared memory is used
         self.pe = pe.read(self.dll)
         self.module_base = 0
         self.ptr_size = self.pe.ptr_size
@@ -83,16 +86,25 @@ class Instance:
         for idx, fill, path in self.blocks_cfg:
             w.u16(idx).u8(fill).str(path)
         w.u8(1 if self.reset_process else 0).u64(start_ns).u8(0xFF if boot_cause is None else boot_cause)
+        shm = None
+        if self.transport == "shm" and os.name == "nt":
+            from .shm import ShmLink
+
+            shm = ShmLink(None if self.connect_port else self.timeout_s)
+            if self.proc is not None:
+                shm.process = int(self.proc._handle)
+        w.str(shm.name if shm else "").u32(os.getpid())
         self.link.send(proto.MSG_CONFIG, bytes(w.b))
+        if shm is not None:  # the runner switches to the shared memory after CONFIG
+            self.tcp = self.link
+            self.link = shm
 
     def stop(self):
         if self.link is not None:
             try:
                 self.link.send(proto.MSG_QUIT)
-            except OSError:
+            except (OSError, ValueError, proto.LinkError):
                 pass
-            self.link.close()
-            self.link = None
         if self.proc is not None:
             try:
                 self.proc.wait(timeout=5)
@@ -100,6 +112,11 @@ class Instance:
                 self.proc.kill()
                 self.proc.wait()
             self.proc = None
+        for link in (self.link, getattr(self, "tcp", None)):
+            if link is not None:
+                link.close()
+        self.link = None
+        self.tcp = None
 
     # ------------------------------------------------------------------
     def run(self, until_ns: int, records: bytes, from_ns: int = 0, quantum_ns: int = 0) -> proto.Done:
