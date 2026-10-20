@@ -33,6 +33,7 @@ class Gui:
         self._lock = threading.Lock()
         self._quit = threading.Event()
         self.httpd: ThreadingHTTPServer | None = None
+        self.license = ""          # shown in the banner, no licence dialog in the page (spec §17.4)
 
     # -- description of the page -------------------------------------------
     def layout(self) -> dict:
@@ -80,7 +81,8 @@ class Gui:
             insts.append({"name": st.name, "powered": st.powered, "resets": [[t, c] for t, c in st.resets[-5:]],
                           "values": values, "streams": streams, "fb": fbs, "models": models,
                           "logs": [[t, lv, tx] for t, lv, tx in st.logs[-20:]]})
-        return {"t": self.sim.now, "running": self.running, "speed": self.speed, "instances": insts}
+        return {"t": self.sim.now, "running": self.running, "speed": self.speed, "instances": insts,
+                "license": self.license}
 
     # -- commands -------------------------------------------------------------
     def apply(self, cmd: dict):

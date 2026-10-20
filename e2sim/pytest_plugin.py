@@ -31,6 +31,39 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "e2sim_requirement(*ids): requirements verified by the test")
     if config.getoption("--e2sim-update-refs"):
         os.environ["E2SIM_UPDATE_REFS"] = "1"
+    if getattr(config, "workerinput", None) is not None:
+        return  # pytest-xdist worker: done once by the controller
+    # licence: once per session, popups if a display exists, never a console question (pytest captures stdin)
+    from .license.ui import make_ui
+    from .license import LicenseManager
+
+    ui = make_ui()
+    try:
+        mgr = LicenseManager(ui)
+        mgr.startup()
+        config._e2sim_license = mgr.status_text()
+    finally:
+        ui.close()
+
+
+def pytest_sessionstart(session):
+    """Licence in the JUnit XML report (spec §17.5)."""
+    config = session.config
+    xml = getattr(config, "_xml", None)
+    try:
+        from _pytest.junitxml import xml_key
+
+        xml = config.stash.get(xml_key, xml)
+    except ImportError:
+        pass
+    text = getattr(config, "_e2sim_license", None)
+    if xml is not None and text:
+        xml.add_global_property("license", text)
+
+
+def pytest_report_header(config):
+    text = getattr(config, "_e2sim_license", None)
+    return f"e2sim: {text}" if text else None
 
 
 def pytest_collection_modifyitems(items):

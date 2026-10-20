@@ -44,8 +44,56 @@ def _run_args(p):
     p.add_argument("--toolchain", help="toolchain of the build to run (default: registry default)")
 
 
+def _license() -> str:
+    """Licence procedure before a simulation (never blocks it, spec §17)."""
+    from .license import check_at_startup
+
+    text = check_at_startup()
+    print(f"e2sim: {text}", flush=True)
+    return text
+
+
+def cmd_license(args) -> int:
+    import webbrowser
+
+    from .license import LicenseManager, product
+    from .license.ui import make_ui
+
+    ui = make_ui()
+    try:
+        mgr = LicenseManager(ui)
+        if args.action == "choose":
+            if mgr.license is not None and not mgr.license.is_expired:
+                print("e2sim: the current license is valid; 'e2sim license activate' enters a Professional key")
+            else:
+                mgr.ensure()
+        elif args.action == "activate":
+            mgr.activate(args.key)
+        elif args.action == "deactivate":
+            mgr.deactivate()
+        elif args.action == "check":
+            ok = mgr.revalidate(silent=False)
+            if ok is False and (mgr.license is None or mgr.license.type.value != "Professional"):
+                print("e2sim: no Professional license to validate")
+        elif args.action == "buy":
+            webbrowser.open(product.BUY_URL)
+            print(f"e2sim: {product.BUY_URL}")
+        elif args.action == "portal":
+            webbrowser.open(product.PORTAL_URL)
+            print(f"e2sim: {product.PORTAL_URL}")
+        print(f"e2sim: {mgr.status_text()}")
+        lic = mgr.license
+        if lic is not None and lic.type.value == "Professional" and lic.customer_email:
+            print(f"e2sim: licensed to {lic.customer_email}, last validated {lic.last_validated_utc:%Y-%m-%d %H:%M} UTC")
+    finally:
+        ui.close()
+    return 0
+
+
 def cmd_run(args) -> int:
     from .sim import Sim
+
+    _license()
 
     with Sim(args.board, toolchain=args.toolchain, connect=args.connect) as sim:
         if args.connect:
@@ -80,8 +128,10 @@ def cmd_gui(args) -> int:
     from .gui import Gui
     from .sim import Sim
 
+    license_text = _license()  # dialogs before the firmware and the page
     with Sim(args.board, toolchain=args.toolchain) as sim:
         gui = Gui(sim, port=args.port)
+        gui.license = license_text
         sim.start()
         if args.power_on:
             sim.power_on()
@@ -98,6 +148,8 @@ def cmd_gui(args) -> int:
 
 def cmd_replay(args) -> int:
     from .sim import replay
+
+    _license()
 
     sim, same = replay(args.record, toolchain=args.toolchain, connect=args.connect)
     print(f"e2sim: replayed {args.record} up to t = {sim.now:.6f} s: "
@@ -129,6 +181,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--connect", type=int, metavar="PORT", help="do not launch the firmware: wait for it (debugger)")
     p.add_argument("--power-on", action="store_true", help="power the firmware at start (power latch boards)")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("license", help="show or manage the license (Demonstration, Personal, Professional)")
+    p.add_argument("action", nargs="?", default="status",
+                   choices=["status", "choose", "activate", "deactivate", "check", "buy", "portal"])
+    p.add_argument("key", nargs="?", help="Professional license key (activate)")
+    p.set_defaults(func=cmd_license)
 
     p = sub.add_parser("gui", help="web GUI of the simulation (real time, run / pause / step / speed)")
     _run_args(p)

@@ -57,6 +57,7 @@
     <select id="speed"><option value="0.1">×0.1</option><option value="1" selected>×1</option>
       <option value="10">×10</option><option value="0">max</option></select></label>
   <span id="msg" class="err"></span>
+  <span id="lic" class="muted" style="margin-left:auto"></span>
 </header>
 <main id="main"></main>
 <script>
@@ -199,6 +200,12 @@ function drawFb(f, b64) {
 
 function update(s) {
   $("#time").textContent = `t = ${s.t.toFixed(3)} s`;
+  const lic = $("#lic");
+  if (s.license !== lic.dataset.text) {
+    lic.dataset.text = s.license || "";
+    lic.textContent = s.license || "";
+    if (/expired/i.test(s.license || "")) lic.append(" · ", h("a", {href: "https://esquaresoft.lemonsqueezy.com", target: "_blank"}, "buy a license"));
+  }
   $("#run").classList.toggle("active", s.running);
   $("#pause").classList.toggle("active", !s.running);
   for (const inst of s.instances) {

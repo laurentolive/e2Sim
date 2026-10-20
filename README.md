@@ -16,7 +16,7 @@ une GUI web et d'autres firmwares).
 - **eScope** sur chaque instance sans code dans le firmware (endpoint V3 du host, port affiché par
   `e2sim run`), et relais TCP de n'importe quelle UART (`tcp:` dans `board.yaml`).
 
-Spécification : [docs/SPEC.md](docs/SPEC.md). État : V0 terminée, V1 en cours (multi-firmware, eScope, relais TCP, GUI web, record/replay faits ; licence à venir).
+Spécification : [docs/SPEC.md](docs/SPEC.md). État : V0 terminée, V1 en cours (multi-firmware, eScope, relais TCP, GUI web, record/replay, licence faits).
 
 ## Arborescence
 
@@ -81,6 +81,12 @@ attente du firmware), puis la configuration **fan_hmi (host32)** : le runner dé
 du firmware restent valides après un reset.
 
 ## Licence
+
+`e2sim license` affiche la licence ; `e2sim license choose | activate [CLÉ] | deactivate | check | buy | portal`.
+La licence est vérifiée au lancement de `run`, `gui`, `connect`, `replay` et une fois par session pytest ; elle ne
+bloque jamais une simulation (Démonstration par défaut). En CI : aucun dialogue, clé dans `E2SIM_LICENSE_KEY`.
+`E2SIM_NO_DIALOG=1` supprime les dialogues, `E2SIM_NO_GUI=1` force la console.
+
 
 Outil PC (`e2sim/`, `mk/`, `docs/`) : [PolyForm Noncommercial 1.0.0](LICENSE.md) + licence commerciale.
 `target/` et `examples/` : MIT (compilés avec le firmware, à recopier librement).
