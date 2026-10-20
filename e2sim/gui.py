@@ -34,6 +34,7 @@ class Gui:
         self._quit = threading.Event()
         self.httpd: ThreadingHTTPServer | None = None
         self.license = ""          # shown in the banner, no licence dialog in the page (spec §17.4)
+        self.note = ""             # caption shown in the banner (demo chapters)
 
     # -- description of the page -------------------------------------------
     def layout(self) -> dict:
@@ -82,12 +83,19 @@ class Gui:
                           "values": values, "streams": streams, "fb": fbs, "models": models,
                           "logs": [[t, lv, tx] for t, lv, tx in st.logs[-20:]]})
         return {"t": self.sim.now, "running": self.running, "speed": self.speed, "instances": insts,
-                "license": self.license}
+                "license": self.license, "note": self.note}
 
     # -- commands -------------------------------------------------------------
-    def apply(self, cmd: dict):
+    def apply(self, cmd: dict) -> dict:
         op = cmd.get("op")
         sim = self.sim
+        if op == "var":
+            return {"value": sim.var(cmd["expr"])}
+        if op == "state":
+            return self.snapshot()
+        if op == "note":
+            self.note = str(cmd.get("text", ""))
+            return {}
         if op == "run":
             self.running = True
         elif op == "pause":
@@ -125,6 +133,7 @@ class Gui:
             self._quit.set()
         else:
             raise SimError(f"unknown command {op!r}")
+        return {}
 
     # -- loop -------------------------------------------------------------------
     def serve(self, open_browser: bool = False, duration_s: float | None = None):
@@ -196,7 +205,9 @@ class Gui:
                 except queue.Empty:
                     break
                 try:
-                    self.apply(cmd)
+                    out = self.apply(cmd)
+                    if isinstance(out, dict):
+                        result.update(out)
                     result["ok"] = True
                 except (SimError, KeyError, ValueError, TypeError) as e:
                     result["error"] = str(e)

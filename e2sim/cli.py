@@ -25,11 +25,10 @@ def cmd_toolchain(args) -> int:
     reg = toolchains.load(Path(args.registry) if args.registry else None)
     if args.op == "list":
         for name, tc in reg.toolchains.items():
-            default = [k for k, v in reg.defaults.items() if v == name]
-            print(f"{name:12} {tc.kind:5} {tc.arch:7} {tc.prefix}" + (f"  (default: {', '.join(default)})" if default else ""))
+            print(f"{name:12} {tc.arch:7} {tc.prefix}" + ("  (default)" if name == reg.default else ""))
         print(f"registry: {reg.file}")
         return 0
-    tc = reg.get(args.name, tool=args.tool)
+    tc = reg.get(args.name)
     out = Path(args.dir) / f"toolchain-{tc.name}.mk"
     out.parent.mkdir(parents=True, exist_ok=True)
     text = toolchains.make_fragment(tc, reg)
@@ -166,12 +165,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("paths", nargs="+")
     p.set_defaults(func=cmd_fs)
 
-    p = sub.add_parser("toolchain", help="toolchain registry")
+    p = sub.add_parser("toolchain", help="toolchains (e2sim_toolchains.yaml)")
     p.add_argument("op", choices=["list", "mk"])
-    p.add_argument("name", nargs="?", help="toolchain name (mk; default: registry default of --tool)")
-    p.add_argument("--tool", default="e2sim")
+    p.add_argument("name", nargs="?", help="toolchain name (mk; default: 'default:' of the file)")
     p.add_argument("--dir", default="build", help="mk: output directory")
-    p.add_argument("--registry", help="toolchains.yaml (default: search, spec §10.1)")
+    p.add_argument("--registry", help="e2sim_toolchains.yaml (default: search, spec §10.1)")
     p.set_defaults(func=cmd_toolchain)
 
     p = sub.add_parser("run", help="run a simulation (headless: --duration)")

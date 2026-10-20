@@ -25,9 +25,9 @@ target/            runner + API e2sim.h (MIT) : fiber, temps virtuel, timers, IR
 e2sim/             host Python : Sim, modèles, board.yaml, symboles (gdb), plugin pytest, CLI
 mk/e2sim.mk        règles make : runner + DLL firmware, toolchain issue du registre
 e2sim_cli.py       point d'entrée (python e2sim_cli.py --help)
-examples/fan/      firmware exemple (MIT) : HAL, adaptateur hal_e2sim, fan_hmi, modèles, tests
+examples/fan/      projet exemple (MIT) : banc de test de toutes les fonctionnalités + démo (make demo)
 selftest/          autotests du runner
-toolchains.yaml.example   registre de toolchains partagé avec e2Unit
+e2sim_toolchains.yaml.example   toolchains de la machine (modèle)
 ```
 
 ## Prérequis
@@ -35,8 +35,8 @@ toolchains.yaml.example   registre de toolchains partagé avec e2Unit
 - Python 3.10+ avec `pyyaml`, `pytest`.
 - GNU make, MSYS2 avec `mingw-w64-i686-gcc`, `mingw-w64-i686-gdb` (host32) et/ou `mingw-w64-ucrt-x86_64-gcc`,
   `mingw-w64-ucrt-x86_64-gdb` (host64). gdb sert aussi au host (symboles, `sim.var()`).
-- Copier `toolchains.yaml.example` en `toolchains.yaml` (ou `~/.esquaresoft/toolchains.yaml`, ou variable
-  `ESQ_TOOLCHAINS`) et y mettre les chemins de la machine.
+- Copier `e2sim_toolchains.yaml.example` en `e2sim_toolchains.yaml` (à la racine du projet, ou dans
+  `~/.e2sim/`, ou variable `E2SIM_TOOLCHAINS`) et y mettre les chemins de la machine.
 
 ## Démarrage rapide
 

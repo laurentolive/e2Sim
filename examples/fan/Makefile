@@ -1,9 +1,11 @@
 #################################
 # Fan example - e2Sim build of the firmwares
-#   make                       default toolchain of the registry (toolchains.yaml)
+#   make                       default toolchain of e2sim_toolchains.yaml
 #   make TOOLCHAIN=host64      other toolchain
 #   make test                  build + pytest, TOOLCHAIN as above
 #   make test-all              build + pytest on host32 and host64
+#   make demo                  demonstration in the GUI, chapter by chapter (DEMO_OPTS="--auto")
+#   make demo-check            the demonstration as a test: fast, no browser
 #################################
 E2SIM_ROOT := ../..
 include $(E2SIM_ROOT)/mk/e2sim.mk
@@ -25,6 +27,12 @@ all: $(E2SIM_FIRMWARES)
 test: all
 	@"$(E2SIM_PY)" -m pytest tests -q --e2sim-toolchain $(E2SIM_TC) $(PYTEST_OPTS)
 
+demo: all
+	@"$(E2SIM_PY)" demo/demo.py --toolchain $(E2SIM_TC) $(DEMO_OPTS)
+
+demo-check: all
+	@"$(E2SIM_PY)" demo/demo.py --check --toolchain $(E2SIM_TC)
+
 test-all:
 	@$(MAKE) --no-print-directory test TOOLCHAIN=host32
 	@$(MAKE) --no-print-directory test TOOLCHAIN=host64
@@ -32,4 +40,4 @@ test-all:
 clean:
 	@$(E2SIM) fs rm $(BUILD) out
 
-.PHONY: all test test-all clean
+.PHONY: all test test-all demo demo-check clean

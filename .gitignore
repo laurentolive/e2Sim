@@ -12,8 +12,7 @@ build/
 compile_commands.json
 
 # Configuration propre à la machine (registre de toolchains, §10.1)
-toolchains.yaml
-toolchains.local.yaml
+e2sim_toolchains.yaml
 esim.local.mk
 
 # Python

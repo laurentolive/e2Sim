@@ -10,7 +10,7 @@
 #   e2sim_runner.exe      generic runner (one per toolchain)
 #   <name>.dll / .map     the firmware, main() renamed e2sim_app_main
 #
-# Variables: TOOLCHAIN (default: registry default for e2sim, spec §10.1), BUILD, PY.
+# Variables: TOOLCHAIN (default: 'default:' of e2sim_toolchains.yaml, spec §10.1), BUILD, PY.
 #################################
 
 ifndef E2SIM_ROOT
@@ -25,10 +25,10 @@ TOOLCHAIN ?=
 
 E2SIM := "$(PY)" $(E2SIM_ROOT)/e2sim_cli.py
 
-# toolchain fragment generated from the registry (CC, OBJCOPY, GDB, E2SIM_TC, PATH...)
-E2SIM_TC_MK := $(shell $(E2SIM) toolchain mk $(TOOLCHAIN) --tool e2sim --dir $(BUILD))
+# toolchain fragment generated from e2sim_toolchains.yaml (CC, OBJCOPY, GDB, E2SIM_TC, PATH...)
+E2SIM_TC_MK := $(shell $(E2SIM) toolchain mk $(TOOLCHAIN) --dir $(BUILD))
 ifeq ($(E2SIM_TC_MK),)
-$(error e2sim: toolchain registry error, see above)
+$(error e2sim: toolchain configuration error, see above)
 endif
 include $(E2SIM_TC_MK)
 E2SIM := "$(E2SIM_PY)" $(E2SIM_ROOT)/e2sim_cli.py

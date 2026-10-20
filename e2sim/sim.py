@@ -443,7 +443,7 @@ class Sim:
             if "{toolchain}" in b.firmware or self.toolchain_name:
                 raise
         if reg is not None:
-            self.toolchain = reg.get(self.toolchain_name, tool="e2sim")
+            self.toolchain = reg.get(self.toolchain_name)
         name = self.toolchain.name if self.toolchain else ""
         dll = (b.dir / b.firmware.format(toolchain=name)).resolve()
         runner = (b.dir / b.runner.format(toolchain=name)).resolve() if b.runner else dll.parent / "e2sim_runner.exe"

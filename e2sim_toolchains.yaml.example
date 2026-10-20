@@ -1,0 +1,16 @@
+# Toolchains of e2Sim (spec §10.1). Own file of e2Sim: no other tool reads it.
+# Copy to e2sim_toolchains.yaml (not versioned) in the project, to ~/.e2sim/e2sim_toolchains.yaml,
+# or point E2SIM_TOOLCHAINS to it, and adapt the paths to the machine.
+python: C:/Dev/Tools/Python312/python.exe      # Python of the host and of the makefiles
+
+toolchains:
+  host32:                                       # PC 32 bits (MSYS2 MINGW32)
+    arch: i686
+    prefix: C:/Dev/Tools/msys64/mingw32/bin/    # -> gcc, ar, objcopy, gdb
+    path: [C:/Dev/Tools/msys64/mingw32/bin]     # DLL runtime of MSYS2
+  host64:                                       # PC 64 bits (MSYS2 UCRT64)
+    arch: x86_64
+    prefix: C:/Dev/Tools/msys64/ucrt64/bin/
+    path: [C:/Dev/Tools/msys64/ucrt64/bin]
+
+default: host32

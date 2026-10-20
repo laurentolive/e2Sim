@@ -1,6 +1,6 @@
 // e2Sim - CI: runner self-tests and fan example campaign on both architectures.
 // Agent: Windows with GNU make, MSYS2 (mingw32 + ucrt64 gcc/gdb), Python 3.10+ (pyyaml, pytest)
-// and a toolchains.yaml (ESQ_TOOLCHAINS or ~/.esquaresoft/). Licence: E2SIM_LICENSE_KEY (credential).
+// and an e2sim_toolchains.yaml (E2SIM_TOOLCHAINS or ~/.e2sim/). Licence: E2SIM_LICENSE_KEY (credential).
 pipeline {
     agent { label 'windows' }
     environment {

@@ -1,4 +1,4 @@
-"""Toolchain registry shared with e2Unit (toolchains.yaml, spec §10.1)."""
+"""Toolchains of e2Sim (e2sim_toolchains.yaml, spec §10.1): own configuration file, independent of the other tools."""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ from pathlib import Path
 
 import yaml
 
-ENV_VAR = "ESQ_TOOLCHAINS"
-FILE_NAME = "toolchains.yaml"
+ENV_VAR = "E2SIM_TOOLCHAINS"
+FILE_NAME = "e2sim_toolchains.yaml"
+USER_DIR = Path.home() / ".e2sim"
 
 
 class ToolchainError(Exception):
@@ -20,11 +21,9 @@ class ToolchainError(Exception):
 @dataclass
 class Toolchain:
     name: str
-    kind: str
     arch: str
     prefix: str
     path: list[str] = field(default_factory=list)
-    python: str | None = None
 
     def tool(self, name: str) -> str:
         """Full path of a tool of the chain (gcc, objcopy, gdb...)."""
@@ -43,32 +42,29 @@ class Registry:
     file: Path
     python: str | None
     toolchains: dict[str, Toolchain]
-    defaults: dict[str, str]
+    default: str | None
 
-    def get(self, name: str | None = None, tool: str = "e2sim") -> Toolchain:
-        """Toolchain by name, else the registry default of the tool."""
+    def get(self, name: str | None = None) -> Toolchain:
+        """Toolchain by name, else the default of the file."""
+        name = name or self.default
         if not name:
-            name = self.defaults.get(tool)
-            if not name:
-                raise ToolchainError(f"{self.file}: no default toolchain for '{tool}' (defaults: {tool}: <name>)")
+            raise ToolchainError(f"{self.file}: no toolchain given and no 'default:'")
         try:
             return self.toolchains[name]
         except KeyError:
             known = ", ".join(sorted(self.toolchains)) or "none"
             raise ToolchainError(f"{self.file}: unknown toolchain '{name}' (known: {known})") from None
 
-    def by_arch(self, arch: str, kind: str = "host") -> Toolchain:
-        """First toolchain of the given architecture, the e2sim default first."""
-        default = self.defaults.get("e2sim")
-        candidates = sorted(self.toolchains.values(), key=lambda t: t.name != default)
-        for t in candidates:
-            if t.kind == kind and t.arch == arch:
+    def by_arch(self, arch: str) -> Toolchain:
+        """A toolchain of the given architecture, the default first."""
+        for t in sorted(self.toolchains.values(), key=lambda t: t.name != self.default):
+            if t.arch == arch:
                 return t
-        raise ToolchainError(f"{self.file}: no '{kind}' toolchain for arch {arch}")
+        raise ToolchainError(f"{self.file}: no toolchain for arch {arch}")
 
 
 def find_file(start: Path | None = None) -> Path:
-    """ESQ_TOOLCHAINS, then toolchains.yaml in start and its parents, then ~/.esquaresoft/."""
+    """E2SIM_TOOLCHAINS, then e2sim_toolchains.yaml in start and its parents, then ~/.e2sim/."""
     env = os.environ.get(ENV_VAR)
     if env:
         p = Path(env)
@@ -80,11 +76,11 @@ def find_file(start: Path | None = None) -> Path:
         p = parent / FILE_NAME
         if p.is_file():
             return p
-    p = Path.home() / ".esquaresoft" / FILE_NAME
+    p = USER_DIR / FILE_NAME
     if p.is_file():
         return p
     raise ToolchainError(
-        f"{FILE_NAME} not found: set {ENV_VAR}, or create it in the project or in ~/.esquaresoft/ "
+        f"{FILE_NAME} not found: set {ENV_VAR}, or create it in the project or in {USER_DIR} "
         f"(see {FILE_NAME}.example)"
     )
 
@@ -99,15 +95,9 @@ def load(file: Path | None = None, start: Path | None = None) -> Registry:
     for name, d in (data.get("toolchains") or {}).items():
         if "prefix" not in d:
             raise ToolchainError(f"{file}: toolchain '{name}': 'prefix' missing")
-        chains[name] = Toolchain(
-            name=name,
-            kind=d.get("kind", "host"),
-            arch=d.get("arch", "x86_64" if d.get("kind", "host") == "host" else "arm"),
-            prefix=str(d["prefix"]),
-            path=[str(p) for p in d.get("path") or []],
-            python=d.get("python"),
-        )
-    return Registry(file=file, python=data.get("python"), toolchains=chains, defaults=data.get("defaults") or {})
+        chains[name] = Toolchain(name=name, arch=d.get("arch", "x86_64"), prefix=str(d["prefix"]),
+                                 path=[str(p) for p in d.get("path") or []])
+    return Registry(file=file, python=data.get("python"), toolchains=chains, default=data.get("default"))
 
 
 def make_fragment(tc: Toolchain, registry: Registry) -> str:
@@ -125,8 +115,6 @@ def make_fragment(tc: Toolchain, registry: Registry) -> str:
         # absolute: the toolchain PATH below may hide the system Python
         f"E2SIM_PY := {Path(registry.python or sys.executable).as_posix()}",
     ]
-    if tc.python:
-        lines.append(f"TC_PY := {tc.python}")
     if tc.path:
         sep = ";" if os.name == "nt" else ":"
         lines.append(f"export PATH := {sep.join(tc.path)}{sep}$(PATH)")

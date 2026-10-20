@@ -1,4 +1,4 @@
-# e2Sim — Spécification v0.9
+# e2Sim — Spécification v1.0
 
 > Simulateur de firmware embarqué sur PC : le code applicatif tourne en natif au-dessus d'une HAL simulée,
 > cadencé par un temps virtuel déterministe, piloté par un humain, des scripts ou d'autres firmwares.
@@ -13,7 +13,9 @@ v0.7 reset et power dans le même process, transactions synchrones, index résol
 par IPC, endpoint eScope dans le host, phasage ajusté, exemples tirés du seul firmware exemple ;
 v0.8 décisions d'implémentation V0 : firmware en DLL chargée par un runner générique (reset = rechargement de la
 DLL), durée de reset, verrou d'alimentation dans `board.yaml`, API `e2sim.h` alignée sur le code ;
-v0.9 runs longs équivalents au pas fixe, multi-firmware livré au quantum suivant, vitesse mesurée
+v0.9 runs longs équivalents au pas fixe, multi-firmware livré au quantum suivant, vitesse mesurée ;
+v1.0 e2Sim indépendant d'e2Unit (fichier de toolchains propre), projet exemple banc de test + démo (§16),
+suivi des actions dans les tickets GitHub
 
 ---
 
@@ -446,73 +448,56 @@ TCP. e2Sim s'appuie sur l'évolution « PC simulation » d'eScope (adresses 64 b
 
 ## 10. Chaînes de compilation et debug
 
-### 10.1 Registre de toolchains partagé e2Unit / e2Sim
-e2Unit et e2Sim utilisent **les mêmes chaînes de compilation**, déclarées **une seule fois par machine**
-dans un fichier commun `toolchains.yaml`. Le format du fichier est le contrat entre les deux outils :
-chacun le lit avec son propre petit lecteur, sans dépendance de code entre les dépôts.
+### 10.1 Fichier de toolchains d'e2Sim
+e2Sim a **son propre fichier de configuration**, `e2sim_toolchains.yaml`, lu par lui seul : aucun
+couplage avec les autres outils (e2Unit, eScope) ni dépendance de code entre les dépôts.
 
 ```yaml
-# toolchains.yaml (non versionné : propre à la machine)
-python: C:/Dev/Tools/Python312/python.exe
+# e2sim_toolchains.yaml (non versionné : propre à la machine) ; modèle : e2sim_toolchains.yaml.example
+python: C:/Dev/Tools/Python312/python.exe      # Python du host et des makefiles
 
 toolchains:
-  host64:                                  # PC 64 bits
-    kind: host
-    arch: x86_64
-    prefix: C:/Dev/Tools/msys64/ucrt64/bin/          # → gcc, g++, ar, objcopy, gdb
-    path: [C:/Dev/Tools/msys64/ucrt64/bin]           # DLL runtime de MSYS2
-  host32:                                  # PC 32 bits
-    kind: host
+  host32:                                       # PC 32 bits (MSYS2 MINGW32)
     arch: i686
-    prefix: C:/Dev/Tools/msys64/mingw32/bin/
-    path: [C:/Dev/Tools/msys64/mingw32/bin]
-    python: C:/Dev/Tools/Python312-32/python.exe     # facultatif : Python de même archi (ctypes e2Unit)
-  arm-gcc9:
-    kind: arm
-    prefix: "C:/Dev/Tools/arm-none-eabi-gcc-9 2020-q2-update/bin/arm-none-eabi-"
-  # on peut ajouter clang, un autre gcc ARM… : un nom = une chaîne complète
+    prefix: C:/Dev/Tools/msys64/mingw32/bin/    # -> gcc, ar, objcopy, gdb
+    path: [C:/Dev/Tools/msys64/mingw32/bin]     # DLL runtime de MSYS2
+  host64:                                       # PC 64 bits (MSYS2 UCRT64)
+    arch: x86_64
+    prefix: C:/Dev/Tools/msys64/ucrt64/bin/
+    path: [C:/Dev/Tools/msys64/ucrt64/bin]
 
-defaults:                                  # choix par défaut de chaque outil
-  e2sim: host32
-  eunit.host: host64
-  eunit.target: arm-gcc9
+default: host32
 ```
 
-**Recherche du fichier** (le premier trouvé l'emporte) : variable `ESQ_TOOLCHAINS` →
-`toolchains.yaml` à la racine du projet → `%USERPROFILE%/.esquaresoft/toolchains.yaml`.
+**Recherche du fichier** (le premier trouvé l'emporte) : variable `E2SIM_TOOLCHAINS` →
+`e2sim_toolchains.yaml` dans le dossier courant ou un de ses parents → `~/.e2sim/e2sim_toolchains.yaml`.
 
 **Choix d'une toolchain**, du plus prioritaire au moins prioritaire :
-1. ligne de commande : `make TOOLCHAIN=host64` ou `e2sim build --toolchain host64` ;
-2. projet : clé `toolchain:` dans `board.yaml` (e2Sim) ou dans la suite YAML (e2Unit) ;
-3. `defaults` du registre.
+1. ligne de commande : `make TOOLCHAIN=host64`, `e2sim run --toolchain host64`, `pytest --e2sim-toolchain host64` ;
+2. projet : clé `toolchain:` dans `board.yaml` ;
+3. `default:` du fichier.
 
-**Intégration au build** : les outils sont pilotés par **GNU make**, comme e2Unit et les firmwares.
-Le registre est traduit en un fragment `toolchain.mk` (`CC`, `CXX`, `AR`, `OBJCOPY`, `GDB`, `PATH`,
-`ARCH_FLAGS`) inclus par les makefiles, et le chemin du gdb est reporté dans `.vscode/launch.json`.
-Les sorties sont séparées par toolchain (`build/<toolchain>/`).
-
-**Compatibilité e2Unit** : `eunit.local.mk` (`HOST_CC`, `ARM_PREFIX`, `PY`) reste supporté. Quand le
-registre existe, ces variables en sont dérivées ; une valeur posée à la main garde la priorité.
+**Intégration au build** : GNU make, comme les firmwares. Le fichier est traduit en un fragment
+`toolchain-<nom>.mk` (`CC`, `AR`, `OBJCOPY`, `GDB`, `E2SIM_PY`, `PATH`) inclus par `mk/e2sim.mk`, et le
+chemin du gdb est reporté dans `.vscode/launch.json`. Les sorties sont séparées par toolchain
+(`build/<toolchain>/`).
 
 ### 10.2 Architectures 32 et 64 bits : les deux sont supportées
-**Exigence** : e2Sim et e2Unit fonctionnent **en i686 et en x86_64** ; l'architecture n'est qu'un choix de
-toolchain dans le registre.
+**Exigence** : e2Sim fonctionne **en i686 et en x86_64** ; l'architecture n'est qu'un choix de toolchain.
 
 | Composant | i686 (`host32`) | x86_64 (`host64`) |
 |---|---|---|
 | `libe2sim-target`, adaptateur, firmware | ✔ | ✔ |
 | Endpoint eScope | `AddressSize` 4 | `AddressSize` 8 (`ADDR64_FLAG`) |
-| e2Unit `host` (ctypes) | avec un Python 32 bits | avec un Python 64 bits |
 | Debug VS Code | gdb `mingw32` | gdb `ucrt64` |
 
-- **Seule contrainte** : une bibliothèque chargée par ctypes doit avoir l'architecture de l'interpréteur
-  Python, d'où la clé facultative `python:` par toolchain. Le firmware e2Sim tourne dans son propre
-  process : le host Python pilote indifféremment un firmware 32 ou 64 bits.
+- Le firmware tourne dans son propre process : le host Python (32 ou 64 bits) pilote indifféremment un
+  firmware 32 ou 64 bits.
 - **Défaut conseillé pour e2Sim : `host32`** (`sizeof(void*) == 4` comme sur MCU).
 - **CI sur les deux architectures** : tout écart de résultat révèle un code non portable (pointeur stocké
   dans un entier 32 bits, hypothèse sur `sizeof(void*)`). Sous Windows (LLP64), `long` fait 4 octets
   dans les deux cas, comme sur ARM.
-- `libe2sim-target`, le code généré par e2Unit et les adaptateurs compilent **sans warning dans les deux architectures**.
+- `libe2sim-target` et les adaptateurs compilent **sans warning dans les deux architectures**.
 
 ### 10.3 Flags et debug
 | Élément | Choix |
@@ -538,7 +523,7 @@ firmware**, à côté des implémentations MCU de la HAL. e2Sim fournit `libe2si
 **firmware exemple** (§16), dont l'adaptateur sert de modèle à recopier.
 
 1. Écrire l'adaptateur e2Sim de la HAL du projet — une fois par famille de HAL.
-2. Créer le makefile e2Sim du projet (sur le modèle d'e2Unit) : sources du projet sans l'implémentation MCU
+2. Créer le makefile e2Sim du projet (modèle : `examples/fan/Makefile`) : sources du projet sans l'implémentation MCU
    de la HAL ni le BSP, includes, defines, `include $(E2SIM_ROOT)/mk/e2sim.mk`.
 3. Écrire `board.yaml` : ports (index symboliques de la HAL), modèles, GUI.
 4. (Optionnel) Écrire les modèles Python nécessaires ; sinon les ports sont pilotés à la main ou par script.
@@ -572,7 +557,7 @@ bloc) et éventuels accès registres hors HAL, à signaler comme dette d'archite
 
 | Version | Contenu | Critère de sortie |
 |---|---|---|
-| **V0** | `libe2sim-target` (fiber, temps virtuel, timers, IRQ, ports `bit`/`value`/`stream`/`xfer`/`block`/`event`, reset dans le process, accès mémoire IPC), host Python minimal (synchro par quantum, modèles, `sim.var()`, résolution DWARF), **export PNG du framebuffer** (`sim["LCD"].save_png()`, `e2sim snapshot`), registre `toolchains.yaml` + `mk/e2sim.mk`, builds `host32` et `host64` ; **firmware exemple `fan_hmi` seul** avec modèles Python | `fan_hmi` démarre, PNG de l'écran correct, tests `T01–T05` déterministes dans les deux architectures, reset WDT avec debugger attaché |
+| **V0** | `libe2sim-target` (fiber, temps virtuel, timers, IRQ, ports `bit`/`value`/`stream`/`xfer`/`block`/`event`, reset dans le process, accès mémoire IPC), host Python minimal (synchro par quantum, modèles, `sim.var()`, résolution DWARF), **export PNG du framebuffer** (`sim["LCD"].save_png()`, `e2sim snapshot`), fichier `e2sim_toolchains.yaml` + `mk/e2sim.mk`, builds `host32` et `host64` ; **firmware exemple `fan_hmi` seul** avec modèles Python | `fan_hmi` démarre, PNG de l'écran correct, tests `T01–T05` déterministes dans les deux architectures, reset WDT avec debugger attaché |
 | **V1** | **Endpoint eScope intégré** (§9.1), relais TCP des streams (§9.3), GUI web générée, record/replay, pytest + JUnit + Excel, CI Jenkins, licence (§17) ; **`fan_motor` + `system.yaml`** ; premier portage d'un produit réel | Tous les tests §16 verts en CI ; eScope trace `fan_motor` en mode `max` ; un produit réel tourne sous e2Sim |
 | **V2** | Couverture, fuzzing, bridge vers port COM réel, outil d'extraction makefile, toolchain Linux/WSL avec sanitizers | Couverture publiée ; campagne sanitizers verte |
 
@@ -586,20 +571,30 @@ bloc) et éventuels accès registres hors HAL, à signaler comme dette d'archite
 | Système | **e2Sim** | le firmware complet, en temps virtuel | scénarios pytest, modèles, autres firmwares |
 | Cible | e2Unit `jlink` / `emu`, banc | binaire ARM réel | sonde, banc |
 
-Règles de cohérence :
-- **Pas de recouvrement** : e2Sim ne teste pas des fonctions isolées, e2Unit ne gère pas le temps ni les périphériques.
-- **Mêmes conventions** : Python 3.10+, YAML, code retour 0/1/2 (PASS/FAIL/erreur), GNU make.
-- **Mêmes chaînes de compilation** : registre `toolchains.yaml` commun (§10.1).
-- **Même modèle de licence** : PolyForm Noncommercial pour l'outil, MIT pour ce qui part dans le firmware (§17).
-- **Même traçabilité** : un test e2Sim porte ses exigences (`@e2sim.requirement("FAN-HMI-03")`) ; les
-  rapports JUnit XML et Excel (exigence → test → verdict) **réutilisent le module `report` d'e2Unit**,
-  pour obtenir une matrice unique sur les deux niveaux.
+Les deux outils sont **indépendants** : chacun son dépôt, sa configuration (toolchains), son code ; aucun
+ne lit les fichiers de l'autre. Ils partagent seulement des conventions :
+- **pas de recouvrement** : e2Sim ne teste pas des fonctions isolées, e2Unit ne gère pas le temps ni les périphériques ;
+- **mêmes conventions** : Python 3.10+, YAML, code retour 0/1/2 (PASS/FAIL/erreur), GNU make ;
+- **même modèle de licence** : PolyForm Noncommercial pour l'outil, MIT pour ce qui part dans le firmware (§17) ;
+- **même disposition du rapport Excel** (feuilles Summary et Tests, mêmes colonnes) : un test e2Sim porte ses
+  exigences (`@e2sim.requirement("FAN-HMI-03")`), `pytest --e2sim-xlsx` produit le rapport (plus une feuille
+  Requirements), et les rapports des deux niveaux se rapprochent sans outil commun.
 
-## 16. Firmware exemple : ventilateur connecté (`examples/fan`)
+## 16. Projet exemple complet : ventilateur connecté (`examples/fan`)
 
-Code **original**, écrit pour e2Sim et publié avec lui. Il sert de démonstration, de modèle de portage et
-de **test d'intégration d'e2Sim lui-même** (exécuté en CI). C'est la seule référence de code utilisée
-dans cette spécification et dans la documentation.
+Code **original**, écrit pour e2Sim et publié avec lui (MIT). C'est la seule référence de code utilisée dans
+cette spécification et dans la documentation. Le projet a **deux buts**, avec la même source :
+
+1. **Tester l'ensemble des fonctionnalités d'e2Sim** : chaque fonctionnalité est couverte par au moins un
+   test automatique de `tests/`, exécuté en CI dans les deux architectures. C'est le test d'intégration
+   d'e2Sim lui-même : une fonctionnalité non couverte par l'exemple n'est pas considérée comme livrée.
+2. **Faire la démonstration des fonctionnalités** : `make demo` déroule un scénario commenté, chapitre par
+   chapitre, dans la GUI web (et eScope), sur les deux firmwares reliés. La démo n'utilise que l'API publique
+   (HTTP JSON de la GUI), et elle est elle-même testée (`make demo-check` : le scénario en mode automatique,
+   temps accéléré, avec une vérification par chapitre), pour qu'elle ne casse jamais.
+
+Il sert aussi de **modèle de portage** : HAL d'exemple, adaptateur `hal_e2sim/`, makefile, `board.yaml`,
+modèles, tests, configuration VS Code.
 
 ### 16.1 Produit fictif
 Un ventilateur sur batterie à deux cartes : une **IHM** (boutons, écran, batterie, capteur de
@@ -609,9 +604,9 @@ avec un protocole à CRC.
 ```
  ┌──────────── fan_hmi ────────────┐   UART_LINK    ┌────────── fan_motor ──────────┐
  │ BTN_POWER, BTN_PLUS, BTN_MINUS  │◄──────────────►│ PWM_MOTOR → modèle moteur      │
- │ LED_STATUS, SELF_HOLD, MOTOR_EN │  consigne,     │ TACHO (capture) ← modèle       │
+ │ LED, SELF_HOLD, MOTOR_EN        │  consigne,     │ TACHO (capture) ← modèle       │
  │ VBAT_ADC ← modèle batterie      │  état, défauts │ CURRENT_ADC ← modèle           │
- │ TEMP_SPI ↔ modèle capteur       │                │ FAULT_IN (EXTI) ← surintensité │
+ │ TEMP_SPI ↔ modèle capteur       │                │ FAULT_IN (EXTI) ← comparateur  │
  │ LCD 128×64 RGB565, EEPROM       │                │ ENABLE ← MOTOR_EN, WDT         │
  │ UART_DEBUG → terminal / TCP     │                │ UART_SCOPE : eScope embarqué   │
  └─────────────────────────────────┘                └────────────────────────────────┘
@@ -620,44 +615,69 @@ avec un protocole à CRC.
 ### 16.2 Structure
 ```
 examples/fan/
-  hal/            HAL d'exemple minimale : halGpio, halAdc, halPwm, halTimer, halCapture,
+  hal/            HAL d'exemple : halGpio, halAdc, halPwm, halTimer, halCapture, halExti,
                   halUart, halSpi, halNvm, halLcd, halWdt, halMcu (en-têtes génériques)
-  hal_e2sim/      adaptateur HAL → e2sim.h   ← le modèle à recopier dans un dépôt firmware
+  hal_e2sim/      adaptateur HAL → e2sim.h + eScopeCfg.h PC  ← le modèle à recopier dans un dépôt firmware
   fan_hmi/        application IHM (main() superloop, machine d'états, affichage, protocole)
-  fan_motor/      application carte moteur (régulation de vitesse, protection, eScope embarqué)
+  fan_motor/      application carte moteur (régulation PI, protections, eScope embarqué)
   common/         protocole UART (trames + CRC), utilitaires
+  escope/         code cible eScope V3 (copie)
   sim/            hmi.board.yaml, motor.board.yaml, system.yaml, models/*.py
-  tests/          scénarios pytest + images de référence
-  Makefile        build des deux firmwares (toolchain sélectionnable : make TOOLCHAIN=…)
-  .vscode/        launch/attach gdb, tâches make
+  tests/          tests automatiques (T00…) + images de référence
+  demo/           scénario de démonstration (chapitres) + guide DEMO.md
+  Makefile        build, test, test-all, demo, demo-check (toolchain : make TOOLCHAIN=…)
+  .vscode/        launch / attach gdb, tâches
 ```
 
-### 16.3 Fonctionnalités démontrées (matrice de couverture)
-| Fonctionnalité e2Sim | Où dans l'exemple | Test |
+### 16.3 Matrice de couverture : test automatique et démo
+Règle : **toute fonctionnalité d'e2Sim a une ligne dans cette matrice**, avec au moins un test automatique ;
+une fonctionnalité visible a aussi un chapitre de démo. Une nouvelle fonctionnalité ajoute sa ligne.
+
+| Fonctionnalité e2Sim | Où dans l'exemple | Test | Démo |
+|---|---|---|---|
+| Superloop `main()` inchangée, yield sur HAL, `e2sim_idle()` | les deux firmwares | tous | 1 |
+| Timer périodique + ISR, sections critiques | tick 1 ms, file d'événements boutons | T01 | 2 |
+| Port `bit` in / out, verrou d'alimentation | boutons, LED, `SELF_HOLD` | T01, T04 | 1, 10 |
+| Bloc framebuffer + PNG, comparaison à une référence | écran 128×64 | T02 | 2 |
+| Attente active sur compteur HAL | délai d'init de l'écran | T02 | — |
+| Port `stream` + modèle Python | `fan_hmi` seul, carte moteur = modèle `MotorBoard` | T03 | — |
+| Bloc NVM persistant | dernière vitesse, compteur de minutes, CRC | T04 | 9, 10 |
+| Port `xfer` synchrone | capteur de température SPI | T05 | 5 |
+| Port `value` in (ADC brut) | batterie | T05 | 6 |
+| Reset dans le process (watchdog) | capteur bloqué → reset WDT | T06 | 8 |
+| Port `value` out (PWM) | duty lu par le modèle moteur | T07 | 4 |
+| Port `event` (EXTI) | comparateur de courant → coupure immédiate | T08 | 7 |
+| Multi-firmware (`system.yaml`) | `fan_hmi` ↔ `fan_motor`, le firmware remplace le modèle | T09 | 2 à 10 |
+| Runs longs, temps accéléré | 10 min en quelques secondes | T00, T10 | 9 |
+| Injection de fautes | trames corrompues, rotor bloqué, NVM corrompue, capteur absent | T03 à T08 | 5 à 8 |
+| Record / replay, sur l'autre architecture | enregistrement d'un scénario, rejoué | T12 | 11 |
+| `sim.var()` / `set_var()` | variables des deux firmwares | tous | 3, 9 |
+| Endpoint eScope intégré au host | `fan_hmi` sans code eScope | T14 | 3 |
+| eScope embarqué + relais TCP d'un stream | `fan_motor` sur `UART_SCOPE` ; `UART_DEBUG` en terminal TCP | T15 | 3 |
+| GUI web générée, API JSON | `system.yaml` | GUI | toute la démo |
+| Rapport Excel exigences → tests | `pytest --e2sim-xlsx` | CI | — |
+| Double architecture | campagne en `host32` et `host64` | CI | — |
+| Debug VS Code | `launch` sur un firmware, breakpoint conservé après reset | manuel | annexe du guide |
+| Licence | dialogues, bandeau de la GUI, propriété JUnit | CI | — |
+
+### 16.4 Scénario de démonstration (`demo/`)
+`make demo` lance la GUI sur `system.yaml` et déroule les chapitres ; chacun s'affiche dans le bandeau de la
+GUI et dans la console, et attend Entrée (ou un délai avec `--auto`). Le guide `demo/DEMO.md` donne le texte à
+dire et les manipulations à montrer (eScope, debugger).
+
+| # | Chapitre | Ce qu'on montre |
 |---|---|---|
-| Superloop `main()` inchangée, yield sur HAL, `e2sim_idle()` | les deux firmwares | tous |
-| Timer périodique + ISR, sections critiques | tick 1 ms, file d'événements boutons | T01 |
-| Port `bit` in / out | boutons, LED | T01 |
-| Bloc framebuffer + export PNG | écran 128×64 (vitesse, batterie, défaut) | T02 |
-| Attente active sur compteur HAL | délai d'init de l'écran | T02 |
-| Port `stream` + modèle Python | V0 : `fan_hmi` seul, carte moteur remplacée par `MotorBoard` | T03 |
-| Bloc NVM persistant, power self-holding | dernière vitesse + compteur d'heures ; appui long → `SELF_HOLD` relâché → power off | T04 |
-| Port `xfer` synchrone | lecture SPI du capteur de température → affichage, alarme | T05 |
-| Port `value` in (ADC brut) | `VBAT_ADC` en points ADC, issus du modèle batterie | T05 |
-| Reset dans le process | défaut injecté qui bloque la boucle → reset WDT, redémarrage, debugger attaché | T06 |
-| Port `value` out (PWM) | duty `PWM_MOTOR` lu par le modèle moteur | T07 |
-| Port `event` (EXTI) | `FAULT_IN` surintensité → arrêt d'urgence | T08 |
-| Multi-firmware | V1 : `fan_hmi` ↔ `fan_motor` via `system.yaml` | T09 |
-| Temps accéléré | 10 min de fonctionnement en runs longs → compteur de minutes en NVM | T10 |
-| Injection de fautes | trames corrompues, moteur bloqué, EEPROM corrompue (CRC) | T08, T11 |
-| Record / replay | rejouer T09 et comparer les sorties au bit près | T12 |
-| `sim.var()` | variables de régulation (`motor.rpm_cmd`, `motor.rpm_meas`) | T13 |
-| Endpoint eScope intégré | trace de `fan_hmi` (sans eScope embarqué) via l'API d'automation eScope | T14 |
-| eScope embarqué + relais TCP | `fan_motor` sur `UART_SCOPE` ; `eScopeCfg.h` PC modèle | T15 |
-| Double architecture | campagne complète en `host32` et en `host64` | CI |
-| GUI générée + skin | `hmi.board.yaml` : boutons sur image, écran, LED, sliders des modèles | démo |
-| Debug VS Code | `launch` sur `fan_hmi`, `attach` pendant `system.yaml` | démo |
-| Traçabilité exigences | chaque test porte une exigence `FAN-*` → rapport Excel | CI |
+| 1 | Mise sous tension | appui POWER : le verrou tient, le firmware démarre sans modification de son code |
+| 2 | Deux firmwares | marche, vitesses 1 à 5 : l'IHM commande, la carte moteur régule, l'écran affiche |
+| 3 | Observer | ports eScope (endpoint du host et eScope embarqué), `sim.var()` dans la console |
+| 4 | Le modèle répond | charge moteur ×1,5 : le PI augmente le rapport cyclique |
+| 5 | Capteur SPI | 70 °C : OVER TEMP, moteur arrêté ; retour à 25 °C |
+| 6 | Batterie | 9,2 V : BAT LOW |
+| 7 | Interruption externe | rotor bloqué : comparateur → coupure dans la milliseconde, MOTOR FAULT, reprise |
+| 8 | Watchdog | capteur bloqué : reset WDT dans le même process, WDT RESET affiché |
+| 9 | Temps accéléré | vitesse max : les minutes de fonctionnement défilent, sauvées en NVM |
+| 10 | Extinction | appui long : sauvegarde, coupure ; rallumage : réglages retrouvés |
+| 11 | Rejouer | la démo enregistrée est rejouée sans modèle : mêmes sorties |
 
 ### 16.4 Modèles Python
 - `Battery` : tension décroissante avec la charge moteur → points ADC ; paramètre `capacity_mAh`.
@@ -752,14 +772,10 @@ d'expiration éventuel → *License Creation* → selon le choix *Notice* + *Per
 
 ### 17.5 Traçabilité
 La licence en cours apparaît dans la sortie console au lancement, dans les **rapports** (propriété
-`license` du JUnit XML, ligne « License » du rapport Excel, via le module `report` partagé avec e2Unit, §15)
+`license` du JUnit XML, ligne « License » du rapport Excel, §15)
 et dans le bandeau de la GUI.
 
-## 18. Points ouverts
-1. **Sanitizers (ASan/UBSan)** : MinGW ne fournit pas ASan ; build Linux/WSL secondaire en V2 ?
-2. **Dépendance eScope** : merger `issue-1-pc-simulation` dans master, puis reporter la phase 1
-   (adresses 64 bits) sur la branche du portage Linux, comme le note le design eScope.
-3. **eScope i686** : la variante x86 (map avec `_` de tête, GDB sur PE 32 bits) est à vérifier ; le
-   firmware exemple servira de cas de test.
-4. **Produit Lemon Squeezy e2Sim** : à créer dans le store `esquaresoft` (prix, offre groupée avec e2Unit ?),
-   puis reporter son id dans `e2sim/license/product.py`.
+## 18. Suivi
+Les actions et points ouverts sont suivis dans les **tickets GitHub** du dépôt
+(`https://github.com/laurentolive/e2Sim/issues`), par étiquette : `verification` (à valider sur un
+environnement réel), `v1`, `v2`, `example` (projet exemple : tests et démo), `perf`, `doc`.

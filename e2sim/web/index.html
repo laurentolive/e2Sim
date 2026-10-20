@@ -59,6 +59,7 @@
   <span id="msg" class="err"></span>
   <span id="lic" class="muted" style="margin-left:auto"></span>
 </header>
+<div id="note" style="display:none;padding:10px 16px;background:var(--accent);color:#fff;font-weight:600"></div>
 <main id="main"></main>
 <script>
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -200,6 +201,8 @@ function drawFb(f, b64) {
 
 function update(s) {
   $("#time").textContent = `t = ${s.t.toFixed(3)} s`;
+  const note = $("#note");
+  if ((s.note || "") !== note.textContent) { note.textContent = s.note || ""; note.style.display = s.note ? "block" : "none"; }
   const lic = $("#lic");
   if (s.license !== lic.dataset.text) {
     lic.dataset.text = s.license || "";
