@@ -16,9 +16,10 @@ température SPI, batterie sur ADC, carte moteur sur UART (protocole à CRC), r�
 hal/          HAL d'exemple (en-têtes génériques)
 hal_e2sim/    adaptateur de la HAL sur e2sim.h  ← modèle à recopier
 common/       protocole IHM ↔ moteur, CRC
+escope/       code cible eScope V3 (copie, MIT), embarqué par fan_motor sur UART_SCOPE
 fan_hmi/      application IHM (main() superloop) ; halCfg.h : ressources HAL de la carte
 sim/          hmi.board.yaml + modèles Python (Battery, TempSensor, MotorBoard)
-tests/        tests pytest T00..T06 + images de référence
+tests/        tests pytest T00..T15 + images de référence
 ```
 
 ```
@@ -28,4 +29,5 @@ make test-all      # host32 et host64 (mêmes références d'écran)
 
 **Carte moteur `fan_motor`** : régulation PI de vitesse sur tachymètre, PWM, comparateur de courant sur
 interruption externe, surintensité logicielle, rotor bloqué. `sim/system.yaml` simule les deux cartes : le
-firmware moteur remplace alors le modèle `MotorBoard`.
+firmware moteur remplace alors le modèle `MotorBoard`. Il embarque aussi eScope sur `UART_SCOPE`, relayée en
+TCP par e2Sim ; sa configuration PC est [hal_e2sim/eScopeCfg.h](hal_e2sim/eScopeCfg.h).

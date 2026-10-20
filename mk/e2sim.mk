@@ -71,7 +71,7 @@ define e2sim_firmware
 $(OUT)/$(1).dll: $(2) $(wildcard $(addsuffix /*.h,$(3))) $(RUNNER_LIB)
 	@echo e2sim: building $$@
 	@$$(E2SIM) fs mkdir $$(@D)
-	@"$$(CC)" $$(E2SIM_CFLAGS) -Dmain=e2sim_app_main $(addprefix -D,$(4)) $$(E2SIM_INCS) $(addprefix -I,$(3)) \
+	@"$$(CC)" $$(E2SIM_CFLAGS) -Dmain=e2sim_app_main -DE2SIM_DLL_BASE=$$(E2SIM_DLL_BASE) $(addprefix -D,$(4)) $$(E2SIM_INCS) $(addprefix -I,$(3)) \
 		-shared -static -o $$@ $(2) $(RUNNER_LIB) \
 		-Wl,--image-base=$$(E2SIM_DLL_BASE) -Wl,--disable-dynamicbase $$(E2SIM_ARCH_LDFLAGS) \
 		-Wl,-Map=$$(OUT)/$(1).map

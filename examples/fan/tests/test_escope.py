@@ -121,3 +121,46 @@ def test_t15_stream_tcp_relay(sim):
         pass
     s.close()
     assert b"fan_hmi boot" in data and b"fan on" in data
+
+
+@e2sim.requirement("E2SIM-ESCOPE-03")
+def test_t15_escope_embedded_in_the_firmware(e2sim_toolchain, tmp_path):
+    """fan_motor embeds eScope on UART_SCOPE: same V3 dialogue, through the TCP relay of the stream."""
+    from pathlib import Path
+
+    system = Path(__file__).parent.parent / "sim" / "system.yaml"
+    with e2sim.Sim(system, toolchain=e2sim_toolchain, work_dir=tmp_path) as sim:
+        motor = sim.instance("motor")
+        asz = motor.inst.ptr_size
+        c = Client(sim, sim["motor.UART_SCOPE"].relay.port)
+        sim["hmi.BTN_POWER"].press(ms=300)
+        sim.run(s=0.8)
+        sim["hmi.BTN_POWER"].press(ms=100)
+        sim.run(s=0.5)
+        ms = motor.symbols.var("motor_ms")
+        rpm = motor.symbols.var("motor.rpmMeas")
+        c.send(bytes([CMD_CLEAR]))
+        sim.run(ms=5)
+        c.send(command(CMD_READ_PERIODIC, ms.addr, ms.size, asz) + command(CMD_READ_PERIODIC, rpm.addr, rpm.size, asz))
+        sim.run(ms=20)
+        c.frames()
+        sim.run(s=1)
+        frames = [f for f in c.frames() if f[1] == CMD_READ_PERIODIC]
+        assert len(frames) >= 900, "one frame per eScopeProtocol_Process() (1 ms)"
+        ticks = [int.from_bytes(f[2][:ms.size], "little") for f in frames]
+        assert all(b - a == 1 for a, b in zip(ticks, ticks[1:])), "sampled every 1 ms tick, no loss"
+        speeds = [int.from_bytes(f[2][ms.size:ms.size + rpm.size], "little") for f in frames]
+        assert abs(speeds[-1] - 600) <= 20, "speed of level 1 read by eScope in the motor firmware"
+
+        err = motor.symbols.var("s_parser.errors")  # only changed on a bad frame
+        c.send(command(CMD_WRITE_APERIODIC, err.addr, err.size, asz, (1234).to_bytes(err.size, "little")))
+        sim.run(ms=3)
+        assert sim.var("motor:s_parser.errors") == 1234, "written by the eScope code of the firmware"
+
+        c.send(bytes([CMD_CLEAR]))
+        sim.run(ms=5)
+        c.send(command(CMD_READ_PERIODIC, 0x8, 2, asz))  # refused by ESCOPE_ADDR_IS_VALID (e2sim_mem_valid)
+        sim.run(ms=10)
+        assert any(f[1] == ERR_ADDR for f in c.frames()), "ERR_ADDR from the firmware, no crash"
+        assert not motor.resets[1:], "the firmware did not reset"
+        c.close()

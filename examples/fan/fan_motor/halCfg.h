@@ -42,6 +42,7 @@ typedef enum
 typedef enum
 {
     HAL_UART_LINK = 0, /* HMI board */
+    HAL_UART_SCOPE,    /* eScope */
     HAL_UART_NB
 } halUart_t;
 

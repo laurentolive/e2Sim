@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "eScopeProtocol.h"
 #include "fanProto.h"
 #include "halAdc.h"
 #include "halCapture.h"
@@ -46,6 +47,10 @@ motor_t motor;
 volatile uint32_t motor_ms;
 
 static fanProto_parser_t s_parser;
+
+/* eScope embedded on HAL_UART_SCOPE: sampling every 1 ms (eScope device: sampling time 1 ms) */
+static eScopeProtocol_t s_scope;
+static uint8_t s_scopeCfg[ESCOPE_PROTOCOL_EEPROM_SIZE];
 
 static void tick_isr(void) { motor_ms++; }
 
@@ -143,8 +148,12 @@ int main(void)
     halExti_Init(HAL_EXTI_OVERCURRENT, overcurrent_isr);
     halTimer_Start(HAL_TIMER_TICK, 1000u, tick_isr);
     halWdt_Init(WDT_TIMEOUT_MS);
+    eScopeTransportCfg_t scopeUart = {.u8Id = HAL_UART_SCOPE};
+    eScopeProtocolCfg_t scopeCfg = {.pu8Cfg = s_scopeCfg};
+    eScopeProtocol_Init(&s_scope, &scopeUart, &scopeCfg);
 
     uint32_t tControl = motor_ms;
+    uint32_t tScope = motor_ms;
     for (;;)
     {
         uint32_t now = motor_ms;
@@ -153,6 +162,12 @@ int main(void)
         {
             tControl = now;
             control();
+        }
+        if (now != tScope)
+        {
+            tScope = now;
+            eScopeProtocol_Poll(&s_scope);
+            eScopeProtocol_Process(&s_scope);
         }
         bool led = (motor.faults == 0u) ? (motor.duty != 0u) : (((now / 100u) & 1u) != 0u);
         halGpio_Write(HAL_GPIO_LED, led);

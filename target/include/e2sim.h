@@ -81,6 +81,10 @@ E2SIM_API void e2sim_on_input(e2sim_class_t c, uint16_t idx, e2sim_isr_t isr, vo
 E2SIM_API void e2sim_irq_disable(void);
 E2SIM_API void e2sim_irq_enable(void);
 
+/* memory of the process: committed and readable (writable) on the whole range. For code that accesses
+   addresses received from outside (eScope embedded in the firmware: ESCOPE_ADDR_IS_VALID) */
+E2SIM_API bool e2sim_mem_valid(const void *addr, size_t size, bool write);
+
 /* diagnostic */
 E2SIM_API void e2sim_log(e2sim_log_level_t level, const char *fmt, ...) __attribute__((format(gnu_printf, 2, 3)));
 

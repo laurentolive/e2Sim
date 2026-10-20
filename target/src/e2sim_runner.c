@@ -837,6 +837,11 @@ static bool mem_valid(uintptr_t addr, size_t size, bool write)
     return true;
 }
 
+E2SIM_API bool e2sim_mem_valid(const void *addr, size_t size, bool write)
+{
+    return mem_valid((uintptr_t)addr, size, write);
+}
+
 static void handle_run(void)
 {
     rbuf_t r = {g.rx.p, g.rx.n, 0, 0};
