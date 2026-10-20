@@ -642,6 +642,8 @@ examples/fan/
 ### 16.3 Matrice de couverture : test automatique et démo
 Règle : **toute fonctionnalité d'e2Sim a une ligne dans cette matrice**, avec au moins un test automatique ;
 une fonctionnalité visible a aussi un chapitre de démo. Une nouvelle fonctionnalité ajoute sa ligne.
+La matrice est vérifiée par `examples/fan/tests/test_matrix.py` : chaque test cité existe, chaque chapitre
+cité existe, chaque test de l'exemple porte une exigence.
 
 | Fonctionnalité e2Sim | Où dans l'exemple | Test | Démo |
 |---|---|---|---|
@@ -664,16 +666,16 @@ une fonctionnalité visible a aussi un chapitre de démo. Une nouvelle fonctionn
 | Forçage d'une entrée pilotée par un modèle (`force` / `release`) | `VBAT_ADC` forcé à 0 | T16 | 6 |
 | Débit d'une ligne série (`baud:`) | `UART_DEBUG` à 9600, liaison moteur saturée à 300 | T18 | — |
 | Index de `board.yaml` par enum ou `#define` (DWARF, `-g3`) | `UART_DEBUG` = `HAL_UART_TERMINAL` | T19 | — |
-| Diagnostic « boucle sans yield point » avec la pile | firmware de selftest (`hang_here`) : bug volontaire hors de l'exemple | selftest | — |
+| Diagnostic « boucle sans yield point » avec la pile | firmware de selftest (`hang_here`) : bug volontaire hors de l'exemple | selftest (test_hang_report_sim) | — |
 | Record / replay, sur l'autre architecture | enregistrement d'un scénario, rejoué | T12 | 11 |
 | `sim.var()` / `set_var()` | variables des deux firmwares | tous | 3, 9 |
 | Endpoint eScope intégré au host | `fan_hmi` sans code eScope | T14 | 3 |
 | eScope embarqué + relais TCP d'un stream | `fan_motor` sur `UART_SCOPE` ; `UART_DEBUG` en terminal TCP | T15 | 3 |
 | GUI web générée, API JSON | `system.yaml` | GUI | toute la démo |
-| Rapport Excel exigences → tests | `pytest --e2sim-xlsx` | CI | — |
-| Double architecture | campagne en `host32` et `host64` | CI | — |
+| Rapport Excel exigences → tests | `pytest --e2sim-xlsx` | selftest (test_report_statuses) | — |
+| Double architecture | campagne en `host32` et `host64` | CI (test-all) | — |
 | Debug VS Code | `launch` sur un firmware, breakpoint conservé après reset | manuel | annexe du guide |
-| Licence | dialogues, bandeau de la GUI, propriété JUnit | CI | — |
+| Licence | dialogues, bandeau de la GUI, propriété JUnit | selftest (test_license_demonstration) | toute la démo |
 
 ### 16.4 Scénario de démonstration (`demo/`)
 `make demo` lance la GUI sur `system.yaml` et déroule les chapitres ; chacun s'affiche dans le bandeau de la
