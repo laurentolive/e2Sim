@@ -46,6 +46,14 @@
   .muted { color: var(--muted); }
   .err { color: var(--warn); }
   input[type=range] { width: 140px; }
+  .skin { position: relative; width: 100%; margin: 4px 0 8px; }
+  .skin img { width: 100%; display: block; user-select: none; -webkit-user-drag: none; }
+  .skin .w { position: absolute; transform: translate(-50%, -50%); }
+  .skin .key { border-radius: 50%; background: transparent; border: 0; cursor: pointer; padding: 0; }
+  .skin .key:hover { box-shadow: 0 0 0 3px var(--accent) inset; }
+  .skin .key.active { background: rgba(255,255,255,.18); }
+  .skin .led { width: 100%; height: 100%; border: 0; }
+  .skin canvas { width: 100%; height: 100%; image-rendering: pixelated; border-radius: 3px; }
 </style>
 </head>
 <body>
@@ -99,7 +107,9 @@ function build() {
     sec.append(tools);
 
     const ports = inst.ports;
-    const fbs = ports.filter(p => p.fb);
+    const onSkin = new Set();
+    if (inst.skin) buildSkin(sec, inst, v, onSkin);
+    const fbs = ports.filter(p => p.fb && !onSkin.has(p.name));
     if (fbs.length) {
       sec.append(h("h3", {}, "Display"));
       for (const p of fbs) {
@@ -196,6 +206,45 @@ function build() {
   }
 }
 
+// image of the product with the widgets placed on it (board.yaml gui: skin + widgets at:)
+function buildSkin(sec, inst, v, onSkin) {
+  const sk = inst.skin;
+  const box = h("div", {class: "skin"});
+  box.style.maxWidth = `${sk.w}px`;
+  box.append(h("img", {src: sk.url, alt: inst.board}));
+  const pct = (x, total) => `${(100 * x / total).toFixed(3)}%`;
+  const byName = Object.fromEntries(inst.ports.map(p => [p.name, p]));
+  for (const wd of sk.widgets) {
+    const p = byName[wd.port];
+    const name = portName(inst.name, wd.port);
+    let el;
+    if (p.fb) {
+      el = h("canvas", {class: "w", width: p.fb.w, height: p.fb.h, title: p.name});
+      const w = wd.w || p.fb.w * wd.zoom, hh = wd.h || p.fb.h * wd.zoom;
+      el.style.width = pct(w, sk.w); el.style.height = pct(hh, sk.h);
+      v.fbs[p.name + "@skin"] = {canvas: el, w: p.fb.w, h: p.fb.h, last: "", port: p.name};
+    } else if (p.type === "bit" && p.dir !== "out") {
+      el = h("button", {class: "w key", title: wd.label || p.name,
+        onmousedown: () => cmd({op: "set", port: name, value: 1}),
+        onmouseup: () => cmd({op: "set", port: name, value: 0}),
+        onmouseleave: (e) => { if (e.buttons) cmd({op: "set", port: name, value: 0}); }});
+      el.style.width = pct(wd.w || 60, sk.w); el.style.height = pct(wd.h || 60, sk.h);
+      (v.skinKeys = v.skinKeys || {})[p.name] = el;
+    } else if (p.type === "bit") {
+      el = h("span", {class: "w led", title: p.name});
+      el.style.width = pct(wd.w || 14, sk.w); el.style.height = pct(wd.h || 14, sk.h);
+      el.classList.add("led");
+      (v.skinLeds = v.skinLeds || {})[p.name] = el;
+    } else {
+      continue;
+    }
+    el.style.left = pct(wd.x, sk.w); el.style.top = pct(wd.y, sk.h);
+    box.append(el);
+    onSkin.add(p.name);
+  }
+  sec.append(box);
+}
+
 function drawFb(f, b64) {
   if (b64 === f.last) return;
   f.last = b64;
@@ -239,7 +288,12 @@ function update(s) {
       const w = v.streams[name];
       if (w && text !== w.last) { w.last = text; w.el.textContent = text; w.el.scrollTop = w.el.scrollHeight; }
     }
-    for (const [name, b64] of Object.entries(inst.fb)) if (v.fbs[name]) drawFb(v.fbs[name], b64);
+    for (const [name, b64] of Object.entries(inst.fb)) {
+      if (v.fbs[name]) drawFb(v.fbs[name], b64);
+      if (v.fbs[name + "@skin"]) drawFb(v.fbs[name + "@skin"], b64);
+    }
+    for (const [name, el] of Object.entries(v.skinLeds || {})) el.classList.toggle("on", !!inst.values[name]);
+    for (const [name, el] of Object.entries(v.skinKeys || {})) el.classList.toggle("active", !!inst.values[name]);
     for (const [mname, params] of Object.entries(inst.models)) {
       for (const [k, val] of Object.entries(params)) {
         const w = v.params[`${mname}.${k}`];

@@ -19,6 +19,24 @@ from .model import Param
 from .sim import Sim, SimError
 
 WEB = Path(__file__).parent / "web"
+MIME = {".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+
+def image_size(path: Path) -> tuple[int, int]:
+    """Width, height of a skin image (SVG width / height or viewBox, PNG header)."""
+    data = path.read_bytes()
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    import re
+
+    head = data[:2000].decode("utf-8", "replace")
+    w, h = re.search(r'\bwidth="([\d.]+)', head), re.search(r'\bheight="([\d.]+)', head)
+    if w and h:
+        return round(float(w.group(1))), round(float(h.group(1)))
+    vb = re.search(r'viewBox="[\d.\s-]+?([\d.]+)\s+([\d.]+)"', head)
+    if vb:
+        return round(float(vb.group(1))), round(float(vb.group(2)))
+    raise ValueError(f"{path}: size of the image unknown")
 STREAM_TAIL = 8192
 
 
@@ -33,12 +51,14 @@ class Gui:
         self._lock = threading.Lock()
         self._quit = threading.Event()
         self.httpd: ThreadingHTTPServer | None = None
+        self._assets: dict[str, Path] = {}
         self.license = ""          # shown in the banner, no licence dialog in the page (spec §17.4)
         self.note = ""             # caption shown in the banner (demo chapters)
 
     # -- description of the page -------------------------------------------
     def layout(self) -> dict:
         out = {"instances": [], "quantum_ms": self.sim.quantum_ns / 1e6}
+        self._assets = {}
         for st in self.sim.instances:
             widgets = {w.get("port"): w for w in st.board.gui.get("widgets", []) if w.get("port")}
             ports = []
@@ -64,8 +84,30 @@ class Gui:
                 models.append({"name": m.name, "params": params})
             out["instances"].append({"name": st.name, "board": st.board.name, "ports": ports, "models": models,
                                      "escope": st.escope.port if st.escope else None,
-                                     "arch": f"{st.inst.ptr_size * 8} bits"})
+                                     "arch": f"{st.inst.ptr_size * 8} bits", "skin": self._skin(st)})
         return out
+
+    def _skin(self, st) -> dict | None:
+        """Image of the product with the widgets placed on it (gui: skin:, widgets: at:), board.yaml."""
+        skin = st.board.gui.get("skin")
+        if not skin:
+            return None
+        path = (st.board.dir / skin).resolve()
+        if not path.is_file():
+            raise SimError(f"{st.board.file}: gui.skin {skin} not found")
+        w, h = image_size(path)
+        url = f"/assets/{st.name}/{path.name}"
+        self._assets[url] = path
+        widgets = []
+        for wd in st.board.gui.get("widgets", []):
+            if "at" not in wd or wd.get("port") not in st.ports:
+                continue
+            x, y = wd["at"]
+            widgets.append({"port": wd["port"], "widget": wd.get("widget", "auto"), "x": x, "y": y,
+                            "w": wd.get("size", [0, 0])[0] if "size" in wd else wd.get("w", 0),
+                            "h": wd.get("size", [0, 0])[1] if "size" in wd else wd.get("h", 0),
+                            "zoom": wd.get("zoom", 1), "label": wd.get("label", "")})
+        return {"url": url, "w": w, "h": h, "widgets": widgets}
 
     def snapshot(self) -> dict:
         insts = []
@@ -166,6 +208,9 @@ class Gui:
                 elif self.path == "/api/state":
                     with gui._lock:
                         self._send(200, gui._state)
+                elif self.path in gui._assets:
+                    f = gui._assets[self.path]
+                    self._send(200, f.read_bytes(), MIME.get(f.suffix.lower(), "application/octet-stream"))
                 else:
                     self._send(404, b"{}")
 

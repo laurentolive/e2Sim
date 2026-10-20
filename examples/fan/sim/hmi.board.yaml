@@ -21,6 +21,15 @@ ports:
   LCD:        { class: BLOCK, idx: HALSIM_BLOCK_LCD,   type: block, framebuffer: { w: 128, h: 64, format: RGB565 } }
   EEPROM:     { class: BLOCK, idx: HALSIM_BLOCK_NVM,   type: block, size: 2048, persist: true, fill: 0xFF }
 
+gui:                                   # image of the product (original drawing), widgets in its pixels
+  skin: assets/fan_hmi.svg
+  widgets:
+    - { port: LCD,       at: [200, 180], size: [320, 160] }
+    - { port: BTN_MINUS, at: [90, 430],  size: [68, 68], label: "-" }
+    - { port: BTN_POWER, at: [200, 430], size: [68, 68], label: "power" }
+    - { port: BTN_PLUS,  at: [310, 430], size: [68, 68], label: "+" }
+    - { port: LED,       at: [300, 330], size: [16, 16] }
+
 models:
   - { class: models.battery.Battery,         ports: { adc: VBAT_ADC } }
   - { class: models.temp_sensor.TempSensor,  ports: { spi: TEMP_SPI } }

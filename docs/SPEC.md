@@ -681,7 +681,7 @@ cité existe, chaque test de l'exemple porte une exigence.
 | `sim.var()` / `set_var()` | variables des deux firmwares | tous | 3, 9 |
 | Endpoint eScope intégré au host | `fan_hmi` sans code eScope | T14 | 3 |
 | eScope embarqué + relais TCP d'un stream | `fan_motor` sur `UART_SCOPE` ; `UART_DEBUG` en terminal TCP | T15 | 3 |
-| GUI web générée, API JSON | `system.yaml` | GUI | toute la démo |
+| GUI web générée, API JSON, image du produit (`gui: skin`) | `system.yaml`, face avant de l'IHM | GUI | toute la démo |
 | Rapport Excel exigences → tests | `pytest --e2sim-xlsx` | selftest (test_report_statuses) | — |
 | Double architecture | campagne en `host32` et `host64` | CI (test-all) | — |
 | Debug VS Code | `launch` sur un firmware, breakpoint conservé après reset | manuel | annexe du guide |

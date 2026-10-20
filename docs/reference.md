@@ -66,7 +66,7 @@ lists the declared firmwares.
 | `ports` | | see below |
 | `models` | | `- { class: module.Class, name, ports: { attr: PORT }, params: { … } }` |
 | `escope: { port, period_us, enabled }` | auto port, 1000, true | eScope V3 endpoint of the host |
-| `gui: { widgets: [ { port, widget, range, zoom } ] }` | | hints for the GUI (`widget: switch`, slider `range`, display `zoom`) |
+| `gui: { skin, widgets: [ { port, at, size, label, widget, range, zoom } ] }` | | `skin`: image of the product (SVG or PNG, relative to the board); a widget with `at: [x, y]` (center, pixels of the image) and `size: [w, h]` is placed on it: display, key (input bit, hold to press), LED (output bit). Without `at`: hints for the panel (`widget: switch`, slider `range`, display `zoom`) |
 
 Ports:
 

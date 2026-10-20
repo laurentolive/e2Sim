@@ -42,6 +42,10 @@ def test_gui_api(e2sim_board, e2sim_toolchain, tmp_path):
         assert names["LCD"]["fb"] == {"w": 128, "h": 64}
         assert names["VBAT_ADC"]["model"] == "Battery"
         assert [m["name"] for m in inst["models"]] == ["Battery", "TempSensor", "MotorBoard"]
+        skin = inst["skin"]
+        assert (skin["w"], skin["h"]) == (400, 520)
+        assert {w["port"] for w in skin["widgets"]} == {"LCD", "BTN_MINUS", "BTN_POWER", "BTN_PLUS", "LED"}
+        assert call(port, skin["url"]).startswith(b"<svg"), "image of the product served"
 
         call(port, "/api/cmd", {"op": "speed", "value": 0})
         call(port, "/api/cmd", {"op": "press", "port": "BTN_POWER", "ms": 300})

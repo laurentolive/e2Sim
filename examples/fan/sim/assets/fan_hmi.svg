@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="520" viewBox="0 0 400 520">
+  <!-- Fan example - front panel of the HMI board (original drawing, MIT) -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b4452"/>
+      <stop offset="1" stop-color="#232a33"/>
+    </linearGradient>
+    <linearGradient id="key" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a6575"/>
+      <stop offset="1" stop-color="#3a4350"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="380" height="500" rx="46" fill="url(#body)" stroke="#11161c" stroke-width="4"/>
+  <rect x="34" y="34" width="332" height="452" rx="30" fill="none" stroke="#4b5564" stroke-width="2"/>
+  <text x="200" y="74" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="22" font-weight="700"
+        fill="#d7dde6" letter-spacing="3">BREEZE 5</text>
+  <!-- display window: 128 x 64 pixels shown x2.5 -->
+  <rect x="34" y="94" width="332" height="172" rx="10" fill="#0b0f14" stroke="#11161c" stroke-width="3"/>
+  <!-- fan grille -->
+  <g fill="none" stroke="#4b5564" stroke-width="3">
+    <circle cx="200" cy="330" r="34"/>
+    <circle cx="200" cy="330" r="22"/>
+    <circle cx="200" cy="330" r="8" fill="#4b5564"/>
+  </g>
+  <!-- keys -->
+  <circle cx="90" cy="430" r="34" fill="url(#key)" stroke="#11161c" stroke-width="3"/>
+  <circle cx="200" cy="430" r="34" fill="url(#key)" stroke="#11161c" stroke-width="3"/>
+  <circle cx="310" cy="430" r="34" fill="url(#key)" stroke="#11161c" stroke-width="3"/>
+  <g font-family="Segoe UI, sans-serif" font-weight="700" fill="#e6ebf2" text-anchor="middle">
+    <text x="90" y="441" font-size="30">−</text>
+    <text x="310" y="441" font-size="30">+</text>
+    <g transform="translate(200 430)" fill="none" stroke="#e6ebf2" stroke-width="4" stroke-linecap="round">
+      <path d="M -9 -8 A 13 13 0 1 0 9 -8"/>
+      <line x1="0" y1="-16" x2="0" y2="-3"/>
+    </g>
+  </g>
+  <!-- status LED window -->
+  <circle cx="300" cy="330" r="9" fill="#11161c"/>
+  <text x="300" y="356" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" fill="#9aa3af">STATUS</text>
+</svg>
