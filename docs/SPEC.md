@@ -532,6 +532,7 @@ firmware**, à côté des implémentations MCU de la HAL. e2Sim fournit `libe2si
 **firmware exemple** (§16), dont l'adaptateur sert de modèle à recopier.
 
 1. Écrire l'adaptateur e2Sim de la HAL du projet — une fois par famille de HAL.
+0. Installer e2Sim (`pip install …`, commande `e2sim`, SDK dans `e2sim root`) ou utiliser le dépôt.
 2. Créer le makefile e2Sim du projet (modèle : `examples/fan/Makefile`) : sources du projet sans l'implémentation MCU
    de la HAL ni le BSP, includes, defines, `include $(E2SIM_ROOT)/mk/e2sim.mk`.
 3. Écrire `board.yaml` : ports (index symboliques de la HAL), modèles, GUI.

@@ -38,6 +38,21 @@ e2sim_toolchains.yaml.example   toolchains de la machine (modèle)
 - Copier `e2sim_toolchains.yaml.example` en `e2sim_toolchains.yaml` (à la racine du projet, ou dans
   `~/.e2sim/`, ou variable `E2SIM_TOOLCHAINS`) et y mettre les chemins de la machine.
 
+## Installation
+
+Depuis le dépôt (développement) : rien à installer, `python e2sim_cli.py …` et `E2SIM_ROOT` = racine du dépôt.
+
+Comme package (commande `e2sim`, plugin pytest déclaré, SDK `target/` + `mk/` dans `<prefix>/share/e2sim`) :
+
+```
+pip install "e2sim[test,report] @ git+https://github.com/laurentolive/e2Sim"
+e2sim --version
+e2sim root          # dossier du SDK : E2SIM_ROOT des makefiles
+```
+
+Makefile d'un firmware hors du dépôt : `E2SIM_ROOT := $(shell e2sim root)` puis `include $(E2SIM_ROOT)/mk/e2sim.mk`.
+Ne pas mettre de clé `python:` dans `e2sim_toolchains.yaml` qui désignerait un autre Python que celui du package.
+
 ## Démarrage rapide
 
 ```

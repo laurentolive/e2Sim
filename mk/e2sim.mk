@@ -23,7 +23,9 @@ PY        ?= $(if $(E2SIM_PY),$(E2SIM_PY),python)
 BUILD     ?= build
 TOOLCHAIN ?=
 
-E2SIM := "$(PY)" $(E2SIM_ROOT)/e2sim_cli.py
+# command line: script of the repository, else the installed package (pip)
+E2SIM_CLI := $(if $(wildcard $(E2SIM_ROOT)/e2sim_cli.py),$(E2SIM_ROOT)/e2sim_cli.py,-m e2sim)
+E2SIM := "$(PY)" $(E2SIM_CLI)
 
 # toolchain fragment generated from e2sim_toolchains.yaml (CC, OBJCOPY, GDB, E2SIM_TC, PATH...)
 E2SIM_TC_MK := $(shell $(E2SIM) toolchain mk $(TOOLCHAIN) --dir $(BUILD))
@@ -31,7 +33,7 @@ ifeq ($(E2SIM_TC_MK),)
 $(error e2sim: toolchain configuration error, see above)
 endif
 include $(E2SIM_TC_MK)
-E2SIM := "$(E2SIM_PY)" $(E2SIM_ROOT)/e2sim_cli.py
+E2SIM := "$(E2SIM_PY)" $(E2SIM_CLI)
 export E2SIM_PY
 
 OUT := $(BUILD)/$(E2SIM_TC)

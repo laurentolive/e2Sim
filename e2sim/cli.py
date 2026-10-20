@@ -21,6 +21,22 @@ def cmd_fs(args) -> int:
     return 0
 
 
+def sdk_root() -> Path:
+    """Directory of target/ and mk/: the repository when run from it, else <prefix>/share/e2sim (pip)."""
+    repo = Path(__file__).resolve().parent.parent
+    if (repo / "mk" / "e2sim.mk").is_file():
+        return repo
+    share = Path(sys.prefix) / "share" / "e2sim"
+    if (share / "mk" / "e2sim.mk").is_file():
+        return share
+    raise toolchains.ToolchainError("e2Sim SDK (target/, mk/) not found")
+
+
+def cmd_root(args) -> int:
+    print(sdk_root().as_posix())
+    return 0
+
+
 def cmd_toolchain(args) -> int:
     reg = toolchains.load(Path(args.registry) if args.registry else None)
     if args.op == "list":
@@ -157,8 +173,14 @@ def cmd_replay(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from . import __version__
+
     ap = argparse.ArgumentParser(prog="e2sim", description="e2Sim - firmware simulation on PC")
+    ap.add_argument("--version", action="version", version=f"e2sim {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("root", help="directory of the SDK (target/, mk/): E2SIM_ROOT of the makefiles")
+    p.set_defaults(func=cmd_root)
 
     p = sub.add_parser("fs", help="portable file operations for the makefiles")
     p.add_argument("op", choices=["mkdir", "rm"])
