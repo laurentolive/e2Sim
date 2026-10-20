@@ -37,7 +37,7 @@ export E2SIM_PY
 OUT := $(BUILD)/$(E2SIM_TC)
 
 E2SIM_WARN   := -Wall -Wextra -Wshadow -Wpointer-arith -Wstrict-prototypes -Wundef
-E2SIM_CFLAGS ?= -std=c11 -g -O0 -funsigned-char $(E2SIM_WARN)
+E2SIM_CFLAGS ?= -std=c11 -g3 -O0 -funsigned-char $(E2SIM_WARN)  # -g3: macros in the DWARF (board.yaml)
 
 # fixed image base: stable addresses build after build (eScope, sim.var)
 E2SIM_DLL_BASE ?= 0x10000000

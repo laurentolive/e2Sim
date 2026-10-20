@@ -286,11 +286,11 @@ gui:
     - { model: Battery, param: voltage_V, widget: slider, range: [9.0, 12.6] }
 ```
 
-**Résolution des index** (O2 : rien n'est généré dans le firmware) : un `idx` symbolique est un nom
-d'enum ou de macro de la HAL du firmware. Le host le résout au chargement **depuis le DWARF de
-l'exécutable** (gdb en mode batch, comme les symboles eScope, §9.4). Les macros `#define` ne sont pas dans
-le DWARF par défaut : compiler avec `-g3`, ou donner l'index en numérique. Un nom introuvable est une
-erreur de chargement explicite.
+**Résolution des index** (O2 : rien n'est généré dans le firmware) : un `idx` symbolique est une constante
+d'enum ou une macro `#define` de la HAL du firmware, résolue au chargement **depuis le DWARF de l'exécutable**
+(gdb en mode batch, comme les symboles eScope, §9.4). Les macros ne sont dans le DWARF qu'avec `-g3` (défaut
+de `mk/e2sim.mk`) : elles sont évaluées dans la portée de chaque source du firmware jusqu'à la trouver. Un
+nom introuvable est une erreur de chargement explicite.
 
 ---
 
@@ -658,6 +658,7 @@ une fonctionnalité visible a aussi un chapitre de démo. Une nouvelle fonctionn
 | Injection de fautes | trames corrompues, rotor bloqué, NVM corrompue, capteur absent | T03 à T08 | 5 à 8 |
 | Forçage d'une entrée pilotée par un modèle (`force` / `release`) | `VBAT_ADC` forcé à 0 | T16 | 6 |
 | Débit d'une ligne série (`baud:`) | `UART_DEBUG` à 9600, liaison moteur saturée à 300 | T18 | — |
+| Index de `board.yaml` par enum ou `#define` (DWARF, `-g3`) | `UART_DEBUG` = `HAL_UART_TERMINAL` | T19 | — |
 | Record / replay, sur l'autre architecture | enregistrement d'un scénario, rejoué | T12 | 11 |
 | `sim.var()` / `set_var()` | variables des deux firmwares | tous | 3, 9 |
 | Endpoint eScope intégré au host | `fan_hmi` sans code eScope | T14 | 3 |

@@ -38,6 +38,9 @@ typedef enum
     HAL_SPI_NB
 } halSpi_t;
 
+/* a resource can also be named by a macro: board.yaml resolves it from the DWARF (-g3) */
+#define HAL_UART_TERMINAL HAL_UART_DEBUG
+
 #define HAL_LCD_WIDTH  128u
 #define HAL_LCD_HEIGHT 64u
 #define HAL_NVM_SIZE   2048u

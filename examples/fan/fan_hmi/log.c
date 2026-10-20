@@ -22,5 +22,5 @@ void log_Printf(const char *fmt, ...)
     {
         n = (int)sizeof(line) - 1;
     }
-    halUart_Write(HAL_UART_DEBUG, (const uint8_t *)line, (size_t)n);
+    halUart_Write(HAL_UART_TERMINAL, (const uint8_t *)line, (size_t)n);
 }

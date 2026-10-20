@@ -245,3 +245,17 @@ def test_t18_link_saturated(e2sim_board, e2sim_toolchain, tmp_path):
             backlog[baud] = (first, len(sim["UART_LINK"].rx_q))
     assert backlog[300][1] > backlog[300][0] + 30, f"300 baud: backlog grows {backlog[300]}"
     assert backlog[9600][1] <= 7, f"9600 baud: no backlog {backlog[9600]}"
+
+
+@e2sim.requirement("E2SIM-BOARD-01")
+def test_t19_board_index_by_macro(sim):
+    """board.yaml names a port by a #define of the firmware (HAL_UART_TERMINAL), resolved from the DWARF (-g3)."""
+    port = sim["UART_DEBUG"]
+    assert port.spec.idx == "HAL_UART_TERMINAL" and port.idx == 1
+    boot(sim)
+    assert "fan_hmi boot" in port.text
+    try:
+        sim.instance().symbols.constants(["HAL_NOT_DEFINED"])
+        raise AssertionError("an unknown name is an error")
+    except e2sim.symbols.SymbolError as e:
+        assert "HAL_NOT_DEFINED" in str(e)

@@ -74,7 +74,7 @@ int main(void)
     halGpio_Write(HAL_GPIO_SELF_HOLD, true); /* keep the power on once the key is released */
     halMcu_resetCause_t cause = halMcu_GetResetCause();
 
-    halUart_Init(HAL_UART_DEBUG, 115200);
+    halUart_Init(HAL_UART_TERMINAL, 115200);
     halNvm_Init();
     bool valid = settings_Load();
     log_Printf("fan_hmi boot (%s), settings %s\n", s_cause[cause], valid ? "ok" : "reset to defaults");
