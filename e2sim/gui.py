@@ -70,17 +70,19 @@ class Gui:
     def snapshot(self) -> dict:
         insts = []
         for st in self.sim.instances:
-            values, streams, fbs = {}, {}, {}
+            values, streams, fbs, forced = {}, {}, {}, {}
             for p in st.ports.values():
                 if p.type in ("bit", "value"):
                     values[p.name] = p.value
+                    if p.forced is not None:
+                        forced[p.name] = p.forced
                 elif p.type == "stream":
                     streams[p.name] = p.rx[-STREAM_TAIL:].decode("utf-8", "replace")
                 elif p.type == "block" and p.spec.framebuffer and p.mm is not None:
                     fbs[p.name] = base64.b64encode(p.read_block()).decode()
             models = {m.name: {k: v for k, v in m.params.items()} for m in st.models}
             insts.append({"name": st.name, "powered": st.powered, "resets": [[t, c] for t, c in st.resets[-5:]],
-                          "values": values, "streams": streams, "fb": fbs, "models": models,
+                          "values": values, "forced": forced, "streams": streams, "fb": fbs, "models": models,
                           "logs": [[t, lv, tx] for t, lv, tx in st.logs[-20:]]})
         return {"t": self.sim.now, "running": self.running, "speed": self.speed, "instances": insts,
                 "license": self.license, "note": self.note}
@@ -107,6 +109,10 @@ class Gui:
             self.speed = float(cmd["value"])
         elif op == "set":
             sim[cmd["port"]].set(int(cmd["value"]))
+        elif op == "force":
+            sim[cmd["port"]].force(int(cmd["value"]))
+        elif op == "release":
+            sim[cmd["port"]].release()
         elif op == "press":
             sim[cmd["port"]].press(ms=float(cmd.get("ms", 100)))
         elif op == "write":

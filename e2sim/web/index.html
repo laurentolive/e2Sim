@@ -150,7 +150,16 @@ function build() {
         } else {
           const val = h("span", {class: "val"}, "0");
           v.values[p.name] = {el: val, kind: "text"};
-          row.append(h("span", {class: "item", title: p.model ? `driven by ${p.model}` : ""}, p.name, val));
+          const item = h("span", {class: "item", title: p.model ? `driven by ${p.model}` : ""}, p.name, val);
+          if (p.model) {  // input driven by a model: can be forced (fault injection)
+            const name = portName(inst.name, p.name);
+            const f = h("input", {type: "number", style: "width:70px", title: "forced value"});
+            const b = h("button", {onclick: () => cmd({op: "force", port: name, value: Number(f.value)})}, "Force");
+            const r = h("button", {onclick: () => cmd({op: "release", port: name})}, "Release");
+            v.values[p.name].forceBtn = b;
+            item.append(f, b, r);
+          }
+          row.append(item);
         }
       }
       sec.append(row);
@@ -218,7 +227,10 @@ function update(s) {
       const w = v.values[name];
       if (!w) continue;
       if (w.kind === "led") w.el.classList.toggle("on", !!val);
-      else if (w.kind === "text") w.el.textContent = val;
+      else if (w.kind === "text") {
+        w.el.textContent = val;
+        if (w.forceBtn) w.forceBtn.classList.toggle("active", name in (inst.forced || {}));
+      }
       else if (w.kind === "button") w.el.classList.toggle("active", !!val);
       else if (w.kind === "check") w.el.checked = !!val;
       else if (w.kind === "value") { w.out.textContent = val; if (document.activeElement !== w.el) w.el.value = val; }

@@ -46,7 +46,8 @@ class Port:
         self.type = spec.type
         self.cls = cls
         self.idx = idx
-        self.value = spec.default if spec.dir != "out" else 0
+        self._value = spec.default if spec.dir != "out" else 0
+        self.forced: int | None = None              # host override of an input (fault injection)
         self.history: list[tuple[int, int]] = []   # (t_ns, value) changes of a firmware output
         self.rx = bytearray()                       # stream: bytes written by the firmware
         self.responder: Callable[[bytes], bytes] | None = None  # xfer without model
@@ -56,8 +57,27 @@ class Port:
         self.relay: TcpServer | None = None         # stream relayed to a TCP client (tcp: in board.yaml)
 
     # -- bit / value ---------------------------------------------------
+    @property
+    def value(self) -> int:
+        """Value seen by the firmware: the forced one if any, else the one of the model / script / firmware."""
+        return self._value if self.forced is None else self.forced
+
+    @value.setter
+    def value(self, v: int):
+        self._value = v
+
     def get(self) -> int:
         return self.value
+
+    def force(self, v: int):
+        """Override an input, even driven by a model, until release() (spec §5: fault injection)."""
+        if self.spec.dir == "out" or self.type not in ("bit", "value"):
+            raise SimError(f"{self.name}: only a bit / value input can be forced")
+        self.forced = int(v)
+
+    def release(self):
+        """Give the input back to its model / script."""
+        self.forced = None
 
     def set(self, v: int):
         if self.spec.dir == "out":

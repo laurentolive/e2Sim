@@ -166,3 +166,22 @@ def test_t00_determinism(e2sim_board, e2sim_toolchain, tmp_path, monkeypatch):
             results.append((sim.trace_digest(), sim["LCD"].read_block(), sim.now_ns))
     assert results[0] == results[1]
     assert results[0] == results[2], "long runs must give the quantum by quantum result"
+
+
+@e2sim.requirement("E2SIM-FORCE-01")
+def test_t16_force_an_input_driven_by_a_model(sim):
+    """A host override wins over the model (broken divider: 0 ADC point), release gives the input back."""
+    boot(sim)
+    pct = sim.var("app.batPercent")
+    sim["VBAT_ADC"].force(0)
+    sim.run(s=0.5)
+    assert sim.var("app.batPercent") == 0 and sim.var("app.fault") & APP_FAULT_BAT
+    assert sim.model("Battery").voltage_V == 12.0, "the model still runs, its value is overridden"
+    sim["VBAT_ADC"].release()
+    sim.run(s=0.5)
+    assert sim.var("app.batPercent") == pct and not sim.var("app.fault") & APP_FAULT_BAT
+    try:
+        sim["LED"].force(1)
+        raise AssertionError("an output cannot be forced")
+    except e2sim.SimError:
+        pass

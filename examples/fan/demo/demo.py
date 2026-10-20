@@ -149,6 +149,13 @@ def ch_battery(api: Api):
     api.run_for(1)
     api.param("hmi.Battery", "voltage_V", 12.0)
     api.wait(lambda: not api.var("hmi:app.fault") & FAULT_BAT, "battery fault cleared")
+    # fault injection over the model: broken divider, the ADC input forced to 0 point
+    api.cmd(op="force", port="hmi.VBAT_ADC", value=0)
+    api.wait(lambda: api.var("hmi:app.batPercent") == 0, "battery input forced to 0")
+    check(True, "input forced over the model (broken divider): 0 %")
+    api.run_for(1)
+    api.cmd(op="release", port="hmi.VBAT_ADC")
+    api.wait(lambda: not api.var("hmi:app.fault") & FAULT_BAT, "input given back to the model")
 
 
 def ch_interrupt(api: Api):
@@ -204,7 +211,7 @@ CHAPTERS = [
     ("Observe", "eScope on every firmware without code, embedded eScope, sim.var()", ch_observe),
     ("The model answers", "motor load x1.5: the PI of the motor firmware raises the duty", ch_model),
     ("SPI sensor", "70 degC from the sensor model: OVER TEMP, motor stopped", ch_spi_sensor),
-    ("Battery", "9.2 V on the ADC: BAT LOW", ch_battery),
+    ("Battery", "9.2 V on the ADC: BAT LOW; then the input forced over the model", ch_battery),
     ("External interrupt", "rotor blocked: the comparator interrupt cuts the PWM at once", ch_interrupt),
     ("Watchdog", "sensor stuck busy: watchdog reset in the same process", ch_watchdog),
     ("Accelerated time", "max speed: running minutes saved in NVM", ch_fast),

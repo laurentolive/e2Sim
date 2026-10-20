@@ -650,6 +650,7 @@ une fonctionnalité visible a aussi un chapitre de démo. Une nouvelle fonctionn
 | Multi-firmware (`system.yaml`) | `fan_hmi` ↔ `fan_motor`, le firmware remplace le modèle | T09 | 2 à 10 |
 | Runs longs, temps accéléré | 10 min en quelques secondes | T00, T10 | 9 |
 | Injection de fautes | trames corrompues, rotor bloqué, NVM corrompue, capteur absent | T03 à T08 | 5 à 8 |
+| Forçage d'une entrée pilotée par un modèle (`force` / `release`) | `VBAT_ADC` forcé à 0 | T16 | 6 |
 | Record / replay, sur l'autre architecture | enregistrement d'un scénario, rejoué | T12 | 11 |
 | `sim.var()` / `set_var()` | variables des deux firmwares | tous | 3, 9 |
 | Endpoint eScope intégré au host | `fan_hmi` sans code eScope | T14 | 3 |

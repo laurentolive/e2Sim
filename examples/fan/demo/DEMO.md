@@ -28,7 +28,7 @@ simulé en Python, au niveau des données de la HAL. Le temps est virtuel : tout
 | 3 | eScope connecté aux ports affichés dans la console | Chaque firmware a un endpoint eScope sans une ligne de code ajoutée ; la carte moteur embarque aussi eScope sur une UART, relayée en TCP. Tracer `motor.rpmMeas` et `motor.duty`. |
 | 4 | Paramètre `load` du modèle moteur | Le modèle change la charge : le régulateur du firmware compense (le rapport cyclique monte). |
 | 5 | Paramètre `temp_C` du capteur | Le capteur SPI répond de façon synchrone ; à 70 °C : OVER TEMP, moteur arrêté. |
-| 6 | Paramètre `voltage_V` de la batterie | Points ADC bruts : BAT LOW à 9,2 V. |
+| 6 | Paramètre `voltage_V` de la batterie, puis Force sur `VBAT_ADC` | Points ADC bruts : BAT LOW à 9,2 V. Injection de faute : l'entrée est forcée à 0 par-dessus le modèle (pont diviseur coupé), puis rendue au modèle. |
 | 7 | Paramètre `blocked` du moteur | Le comparateur de courant déclenche une interruption externe : la coupure arrive dans la milliseconde, sans attendre la boucle de régulation. |
 | 8 | Paramètre `stuck_busy` du capteur | Le firmware attend le capteur sans timeout : le watchdog le remet à zéro, dans le même process (le debugger resterait attaché). Défaut trouvé en simulation, sans banc. |
 | 9 | Vitesse « max » | Le temps accéléré : le compteur de minutes de fonctionnement défile et se sauve en NVM. Une endurance de plusieurs heures se joue en minutes. |
