@@ -16,7 +16,7 @@ une GUI web et d'autres firmwares).
 - **eScope** sur chaque instance sans code dans le firmware (endpoint V3 du host, port affiché par
   `e2sim run`), et relais TCP de n'importe quelle UART (`tcp:` dans `board.yaml`).
 
-Spécification : [docs/SPEC.md](docs/SPEC.md). État : V0 terminée, V1 en cours (multi-firmware, eScope, relais TCP faits ; GUI web, record/replay, licence à venir).
+Spécification : [docs/SPEC.md](docs/SPEC.md). État : V0 terminée, V1 en cours (multi-firmware, eScope, relais TCP, GUI web faits ; record/replay, licence à venir).
 
 ## Arborescence
 
@@ -47,6 +47,8 @@ make TOOLCHAIN=host64
 make test                  # build + pytest
 make test-all              # host32 et host64
 python ../../e2sim_cli.py run sim/hmi.board.yaml --power-on --duration 2 --snapshot LCD=out/lcd.png
+python ../../e2sim_cli.py gui sim/hmi.board.yaml       # GUI web : http://127.0.0.1:8080/
+python ../../e2sim_cli.py gui sim/system.yaml          # les deux cartes
 ```
 
 ## Porter un firmware

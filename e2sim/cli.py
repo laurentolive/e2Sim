@@ -76,6 +76,26 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_gui(args) -> int:
+    from .gui import Gui
+    from .sim import Sim
+
+    with Sim(args.board, toolchain=args.toolchain) as sim:
+        gui = Gui(sim, port=args.port)
+        sim.start()
+        if args.power_on:
+            sim.power_on()
+        for st in sim.instances:
+            if st.escope is not None:
+                print(f"e2sim: {st.name}: eScope on TCP:127.0.0.1,{st.escope.port}", flush=True)
+        print(f"e2sim: GUI on http://127.0.0.1:{args.port}/  (Ctrl+C to stop)", flush=True)
+        try:
+            gui.serve(open_browser=not args.no_browser)
+        except KeyboardInterrupt:
+            pass
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="e2sim", description="e2Sim - firmware simulation on PC")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -100,6 +120,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--connect", type=int, metavar="PORT", help="do not launch the firmware: wait for it (debugger)")
     p.add_argument("--power-on", action="store_true", help="power the firmware at start (power latch boards)")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("gui", help="web GUI of the simulation (real time, run / pause / step / speed)")
+    _run_args(p)
+    p.add_argument("--port", type=int, default=8080)
+    p.add_argument("--power-on", action="store_true", help="power the firmware at start (power latch boards)")
+    p.add_argument("--no-browser", action="store_true")
+    p.set_defaults(func=cmd_gui)
 
     p = sub.add_parser("connect", help="wait for a firmware launched from the debugger, run in real time")
     _run_args(p)

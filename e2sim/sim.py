@@ -605,7 +605,8 @@ class Sim:
     def run(self, s: float = 0, ms: float = 0, us: float = 0, fixed: bool = False):
         """Run for a duration. Several quanta per host round trip, stopped on any firmware output and at
         every host event: same result as quantum by quantum (fixed=True), faster."""
-        end = self.now_ns + _ns(s, ms, us)
+        q = self.quantum_ns
+        end = self.now_ns + -(-_ns(s, ms, us) // q) * q  # whole quanta
         while self.now_ns < end:
             if fixed:
                 self.step()

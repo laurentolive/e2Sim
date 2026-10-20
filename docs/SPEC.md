@@ -348,8 +348,11 @@ def test_motor_board_silent(sim):
 - **Générée depuis `board.yaml`** : boutons, interrupteurs, LEDs, sliders, valeurs, écran, terminal stream,
   commandes de temps (play, pause, step, ×k), paramètres des modèles et injection de fautes.
 - Skin optionnel : image du produit + zones cliquables.
-- **UI web locale** servie par le host (HTTP + WebSocket sur `127.0.0.1`), ouverte dans le navigateur.
-  Le même canal WebSocket sert l'automatisation externe.
+- **UI web locale** servie par le host (HTTP sur `127.0.0.1`, bibliothèque standard Python), ouverte dans le
+  navigateur : `e2sim gui board.yaml|system.yaml`. La page lit `GET /api/state` (100 ms) et envoie
+  `POST /api/cmd` (`run`, `pause`, `step`, `speed`, `set`, `press`, `write`, `param`, `power`, `reset`) ; la même
+  API JSON sert l'automatisation externe. Choix d'implémentation : du polling HTTP plutôt qu'un WebSocket,
+  suffisant en local et sans dépendance.
 - Pas de framework front lourd ni d'étape de build JS : composants générés depuis `board.yaml`, servis tels quels.
 - La GUI est un client comme un autre : on peut lancer un script et suivre en GUI simultanément.
 

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>e2Sim</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2330; --muted: #6b7280; --line: #dde1e7;
+    --accent: #2563eb; --on: #16a34a; --off: #c7ccd4; --warn: #dc2626; --term: #0f172a; --term-ink: #d1fae5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111418; --panel: #1a1f26; --ink: #e5e7eb; --muted: #9aa3af; --line: #2b323c;
+            --accent: #60a5fa; --on: #22c55e; --off: #3a424d; --warn: #f87171; --term: #0b0f14; --term-ink: #a7f3d0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, Segoe UI, sans-serif; background: var(--bg); color: var(--ink); }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+           padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; }
+  .time { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 120px; }
+  button, select, input { font: inherit; color: inherit; }
+  button { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; padding: 16px; }
+  section.inst { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  section.inst h2 { font-size: 15px; margin: 0 0 8px; display: flex; gap: 8px; align-items: center; }
+  .badge { font-size: 12px; font-weight: 500; color: var(--muted); }
+  .pwr { width: 10px; height: 10px; border-radius: 50%; background: var(--off); display: inline-block; }
+  .pwr.on { background: var(--on); }
+  h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 6px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+  .item { display: flex; gap: 6px; align-items: center; min-width: 0; }
+  .led { width: 14px; height: 14px; border-radius: 50%; background: var(--off); border: 1px solid var(--line); }
+  .led.on { background: var(--on); box-shadow: 0 0 6px var(--on); }
+  .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+  canvas.fb { image-rendering: pixelated; border-radius: 4px; border: 1px solid var(--line); max-width: 100%; }
+  pre.term { background: var(--term); color: var(--term-ink); height: 140px; overflow: auto; margin: 0;
+             padding: 8px; border-radius: 6px; font: 12px/1.35 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+  .termbar { display: flex; gap: 6px; margin-top: 4px; }
+  .termbar input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--bg); }
+  .param { display: grid; grid-template-columns: 1fr 120px; gap: 4px 8px; align-items: center; }
+  .param input[type=number], .param input[type=text] { width: 100%; border: 1px solid var(--line); border-radius: 6px;
+             padding: 3px 6px; background: var(--bg); }
+  .muted { color: var(--muted); }
+  .err { color: var(--warn); }
+  input[type=range] { width: 140px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>e2Sim</h1>
+  <span class="time" id="time">t = 0.000 s</span>
+  <button id="run">Run</button><button id="pause">Pause</button><button id="step">Step</button>
+  <label class="muted">speed
+    <select id="speed"><option value="0.1">×0.1</option><option value="1" selected>×1</option>
+      <option value="10">×10</option><option value="0">max</option></select></label>
+  <span id="msg" class="err"></span>
+</header>
+<main id="main"></main>
+<script>
+const $ = (sel, el = document) => el.querySelector(sel);
+const h = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else if (v !== undefined) e.setAttribute(k, v);
+  }
+  for (const k of kids) e.append(k);
+  return e;
+};
+async function cmd(c) {
+  const r = await fetch("/api/cmd", {method: "POST", body: JSON.stringify(c)});
+  const j = await r.json();
+  $("#msg").textContent = j.error || "";
+  return j;
+}
+let layout, single;
+const view = {};          // instance -> {values: {port: el}, streams, fbs, params, pwr}
+
+function portName(inst, p) { return single ? p : `${inst}.${p}`; }
+
+function build() {
+  const main = $("#main");
+  single = layout.instances.length === 1;
+  for (const inst of layout.instances) {
+    const v = view[inst.name] = {values: {}, streams: {}, fbs: {}, params: {}};
+    const sec = h("section", {class: "inst"});
+    v.pwr = h("span", {class: "pwr"});
+    const title = h("h2", {}, v.pwr, inst.name, h("span", {class: "badge"}, `${inst.board} · ${inst.arch}`));
+    sec.append(title);
+    const tools = h("div", {class: "row"},
+      h("button", {onclick: () => cmd({op: "power", instance: inst.name, on: true})}, "Power on"),
+      h("button", {onclick: () => cmd({op: "power", instance: inst.name, on: false})}, "Power off"),
+      h("button", {onclick: () => cmd({op: "reset", instance: inst.name})}, "Reset"));
+    if (inst.escope) tools.append(h("span", {class: "muted"}, `eScope TCP:127.0.0.1,${inst.escope}`));
+    sec.append(tools);
+
+    const ports = inst.ports;
+    const fbs = ports.filter(p => p.fb);
+    if (fbs.length) {
+      sec.append(h("h3", {}, "Display"));
+      for (const p of fbs) {
+        const zoom = (p.widget && p.widget.zoom) || 3;
+        const c = h("canvas", {class: "fb", width: p.fb.w, height: p.fb.h, title: p.name});
+        c.style.width = `${p.fb.w * zoom}px`;
+        v.fbs[p.name] = {canvas: c, w: p.fb.w, h: p.fb.h, last: ""};
+        sec.append(c);
+      }
+    }
+    const ins = ports.filter(p => (p.type === "bit" || p.type === "value") && p.dir !== "out" && !p.model);
+    if (ins.length) {
+      sec.append(h("h3", {}, "Inputs"));
+      const row = h("div", {class: "row"});
+      for (const p of ins) {
+        const name = portName(inst.name, p.name);
+        if (p.type === "bit" && !(p.widget && p.widget.widget === "switch")) {
+          const b = h("button", {title: "hold to press",
+            onmousedown: () => cmd({op: "set", port: name, value: 1}),
+            onmouseup: () => cmd({op: "set", port: name, value: 0}),
+            onmouseleave: (e) => { if (e.buttons) cmd({op: "set", port: name, value: 0}); }}, p.name);
+          v.values[p.name] = {el: b, kind: "button"};
+          row.append(b);
+        } else if (p.type === "bit") {
+          const cb = h("input", {type: "checkbox", onchange: (e) => cmd({op: "set", port: name, value: e.target.checked ? 1 : 0})});
+          v.values[p.name] = {el: cb, kind: "check"};
+          row.append(h("label", {class: "item"}, cb, p.name));
+        } else {
+          const w = p.widget || {};
+          const inp = w.range ? h("input", {type: "range", min: w.range[0], max: w.range[1]}) : h("input", {type: "number", style: "width:90px"});
+          const out = h("span", {class: "val"});
+          inp.addEventListener("change", () => cmd({op: "set", port: name, value: Number(inp.value)}));
+          v.values[p.name] = {el: inp, out, kind: "value"};
+          row.append(h("label", {class: "item"}, p.name, inp, out));
+        }
+      }
+      sec.append(row);
+    }
+    const outs = ports.filter(p => (p.type === "bit" || p.type === "value") && (p.dir === "out" || p.model));
+    if (outs.length) {
+      sec.append(h("h3", {}, "Outputs"));
+      const row = h("div", {class: "row"});
+      for (const p of outs) {
+        if (p.type === "bit" && p.dir === "out") {
+          const led = h("span", {class: "led"});
+          v.values[p.name] = {el: led, kind: "led"};
+          row.append(h("span", {class: "item"}, led, p.name));
+        } else {
+          const val = h("span", {class: "val"}, "0");
+          v.values[p.name] = {el: val, kind: "text"};
+          row.append(h("span", {class: "item", title: p.model ? `driven by ${p.model}` : ""}, p.name, val));
+        }
+      }
+      sec.append(row);
+    }
+    for (const p of ports.filter(p => p.type === "stream")) {
+      const name = portName(inst.name, p.name);
+      sec.append(h("h3", {}, p.name + (p.tcp ? ` · TCP:127.0.0.1,${p.tcp}` : "")));
+      const pre = h("pre", {class: "term"});
+      const inp = h("input", {type: "text", placeholder: "send (Enter)"});
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { cmd({op: "write", port: name, text: inp.value + "\n"}); inp.value = ""; } });
+      v.streams[p.name] = {el: pre, last: ""};
+      sec.append(pre, h("div", {class: "termbar"}, inp, h("button", {onclick: () => cmd({op: "clear", port: name})}, "Clear")));
+    }
+    for (const m of inst.models) {
+      sec.append(h("h3", {}, `Model ${m.name}`));
+      const grid = h("div", {class: "param"});
+      const mname = single ? m.name : `${inst.name}.${m.name}`;
+      for (const prm of m.params) {
+        let inp;
+        if (prm.kind === "bool") {
+          inp = h("input", {type: "checkbox", onchange: (e) => cmd({op: "param", model: mname, name: prm.name, value: e.target.checked})});
+        } else {
+          inp = h("input", {type: (prm.kind === "int" || prm.kind === "float") ? "number" : "text", step: "any"});
+          inp.addEventListener("change", () => cmd({op: "param", model: mname, name: prm.name, value: inp.value}));
+        }
+        v.params[`${m.name}.${prm.name}`] = {el: inp, kind: prm.kind};
+        grid.append(h("label", {title: prm.doc}, prm.name), inp);
+      }
+      sec.append(grid);
+    }
+    v.resets = h("div", {class: "muted"});
+    sec.append(h("h3", {}, "Resets"), v.resets);
+    main.append(sec);
+  }
+}
+
+function drawFb(f, b64) {
+  if (b64 === f.last) return;
+  f.last = b64;
+  const raw = atob(b64), ctx = f.canvas.getContext("2d"), img = ctx.createImageData(f.w, f.h);
+  for (let i = 0; i < f.w * f.h; i++) {
+    const v = raw.charCodeAt(2 * i) | (raw.charCodeAt(2 * i + 1) << 8);
+    img.data[4 * i] = ((v >> 11) & 31) * 255 / 31; img.data[4 * i + 1] = ((v >> 5) & 63) * 255 / 63;
+    img.data[4 * i + 2] = (v & 31) * 255 / 31; img.data[4 * i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+function update(s) {
+  $("#time").textContent = `t = ${s.t.toFixed(3)} s`;
+  $("#run").classList.toggle("active", s.running);
+  $("#pause").classList.toggle("active", !s.running);
+  for (const inst of s.instances) {
+    const v = view[inst.name];
+    v.pwr.classList.toggle("on", inst.powered);
+    for (const [name, val] of Object.entries(inst.values)) {
+      const w = v.values[name];
+      if (!w) continue;
+      if (w.kind === "led") w.el.classList.toggle("on", !!val);
+      else if (w.kind === "text") w.el.textContent = val;
+      else if (w.kind === "button") w.el.classList.toggle("active", !!val);
+      else if (w.kind === "check") w.el.checked = !!val;
+      else if (w.kind === "value") { w.out.textContent = val; if (document.activeElement !== w.el) w.el.value = val; }
+    }
+    for (const [name, text] of Object.entries(inst.streams)) {
+      const w = v.streams[name];
+      if (w && text !== w.last) { w.last = text; w.el.textContent = text; w.el.scrollTop = w.el.scrollHeight; }
+    }
+    for (const [name, b64] of Object.entries(inst.fb)) if (v.fbs[name]) drawFb(v.fbs[name], b64);
+    for (const [mname, params] of Object.entries(inst.models)) {
+      for (const [k, val] of Object.entries(params)) {
+        const w = v.params[`${mname}.${k}`];
+        if (!w || document.activeElement === w.el) continue;
+        if (w.kind === "bool") w.el.checked = !!val; else w.el.value = val;
+      }
+    }
+    v.resets.textContent = inst.resets.map(([t, c]) => `${(t / 1e9).toFixed(3)} s ${c}`).join(" · ") || "-";
+  }
+}
+
+async function poll() {
+  try { update(await (await fetch("/api/state")).json()); } catch (e) { $("#msg").textContent = "simulation stopped"; return; }
+  setTimeout(poll, 100);
+}
+
+$("#run").onclick = () => cmd({op: "run"});
+$("#pause").onclick = () => cmd({op: "pause"});
+$("#step").onclick = () => cmd({op: "step"});
+$("#speed").onchange = (e) => cmd({op: "speed", value: Number(e.target.value)});
+fetch("/api/layout").then(r => r.json()).then(l => { layout = l; build(); poll(); });
+</script>
+</body>
+</html>
