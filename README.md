@@ -1,87 +1,73 @@
 # e2Sim
 
-Simulation de firmware embarqué **sur PC** : le code applicatif tourne en natif, sans modification, au-dessus
-d'une HAL simulée, cadencé par un **temps virtuel déterministe**, piloté par des scripts de test (et en V1 par
-une GUI web et d'autres firmwares).
+**English** | [Français](README.fr.md)
 
-- Le firmware est compilé en **DLL** (GCC MinGW, i686 ou x86_64) ; son `main()` tourne dans une fiber du
-  **runner** générique `e2sim_runner.exe`, qui gère le temps, les interruptions et les ports.
-- Seule la HAL change : un **adaptateur** l'implémente sur [`e2sim.h`](target/include/e2sim.h).
-- L'entourage du MCU (capteurs, carte voisine, batterie…) est simulé par des **modèles Python**, au niveau des
-  données de la HAL.
-- Un reset (logiciel, watchdog) **recharge la DLL dans le même process** : RAM et init du firmware comme au
-  boot, le debugger reste attaché.
-- Tests **pytest** reproductibles au bit près, en temps accéléré (runs longs équivalents au pas fixe).
-- Plusieurs firmwares reliés (`system.yaml`) : un firmware remplace un modèle.
-- **eScope** sur chaque instance sans code dans le firmware (endpoint V3 du host, port affiché par
-  `e2sim run`), et relais TCP de n'importe quelle UART (`tcp:` dans `board.yaml`).
+Embedded firmware simulation **on a PC**: the application code runs natively, **unchanged**, on top of a
+simulated HAL, clocked by a **deterministic virtual time**, driven by test scripts, a web GUI or other firmwares.
 
-Spécification : [docs/SPEC.md](docs/SPEC.md). État : V0 terminée, V1 en cours (multi-firmware, eScope, relais TCP, GUI web, record/replay, licence faits).
+- The firmware is built as a **DLL** (GCC MinGW, i686 or x86_64); its `main()` runs in a fiber of the generic
+  **runner** `e2sim_runner.exe`, which owns time, interrupts and ports.
+- Only the HAL changes: an **adapter** implements it on [`e2sim.h`](target/include/e2sim.h).
+- The environment of the MCU (sensors, other board, battery…) is simulated by **Python models**, at the level of
+  the data of the HAL (ADC points, bytes, duty cycles), not physics.
+- A reset (software, watchdog) **reloads the DLL in the same process**: RAM and init as at boot, the debugger stays
+  attached.
+- **pytest** tests reproducible to the bit, in accelerated time; **record / replay** of any scenario.
+- Several linked firmwares (`system.yaml`): a firmware replaces a model.
+- **eScope** on every firmware without code in it (V3 endpoint of the host), TCP relay of any UART.
 
-## Arborescence
+| Documents | |
+|---|---|
+| [Porting tutorial](docs/tutorial/porting.en.md) | port a firmware step by step |
+| [Reference](docs/reference.md) | command line, `board.yaml`, Python API, pytest, `e2sim.h` |
+| [Specification](docs/SPEC.md) (French) | architecture and decisions |
+| [Example project](examples/fan) | tests every feature and demonstrates them (`make demo`) |
+| [Issues](https://github.com/laurentolive/e2Sim/issues) | work in progress |
+
+## Layout
 
 ```
-target/            runner + API e2sim.h (MIT) : fiber, temps virtuel, timers, IRQ, ports, reset, mémoire
-e2sim/             host Python : Sim, modèles, board.yaml, symboles (gdb), plugin pytest, CLI
-mk/e2sim.mk        règles make : runner + DLL firmware, toolchain issue du registre
-e2sim_cli.py       point d'entrée (python e2sim_cli.py --help)
-examples/fan/      projet exemple (MIT) : banc de test de toutes les fonctionnalités + démo (make demo)
-selftest/          autotests du runner
-e2sim_toolchains.yaml.example   toolchains de la machine (modèle)
+target/            runner + API e2sim.h (MIT): fiber, virtual time, timers, IRQ, ports, reset, memory
+e2sim/             Python host: Sim, models, board.yaml, symbols (gdb), pytest plugin, web GUI, CLI
+mk/e2sim.mk        make rules: runner + firmware DLL for the selected toolchain
+e2sim_cli.py       entry point from the repository (python e2sim_cli.py --help)
+examples/fan/      example project (MIT): test bench of every feature + demonstration
+selftest/          self-tests of the runner
+e2sim_toolchains.yaml.example   toolchains of the machine (template)
 ```
 
-## Prérequis
+## Requirements
 
-- Python 3.10+ avec `pyyaml`, `pytest`.
-- GNU make, MSYS2 avec `mingw-w64-i686-gcc`, `mingw-w64-i686-gdb` (host32) et/ou `mingw-w64-ucrt-x86_64-gcc`,
-  `mingw-w64-ucrt-x86_64-gdb` (host64). gdb sert aussi au host (symboles, `sim.var()`).
-- Copier `e2sim_toolchains.yaml.example` en `e2sim_toolchains.yaml` (à la racine du projet, ou dans
-  `~/.e2sim/`, ou variable `E2SIM_TOOLCHAINS`) et y mettre les chemins de la machine.
+- Windows, Python 3.10+ with `pyyaml`, `pytest` (`openpyxl` for the Excel report).
+- GNU make, MSYS2 with `mingw-w64-i686-gcc`, `mingw-w64-i686-gdb` (host32) and/or `mingw-w64-ucrt-x86_64-gcc`,
+  `mingw-w64-ucrt-x86_64-gdb` (host64). gdb is also used by the host (symbols, `sim.var()`).
+- Copy `e2sim_toolchains.yaml.example` to `e2sim_toolchains.yaml` (in the project, in `~/.e2sim/`, or set
+  `E2SIM_TOOLCHAINS`) with the paths of the machine.
 
 ## Installation
 
-Depuis le dépôt (développement) : rien à installer, `python e2sim_cli.py …` et `E2SIM_ROOT` = racine du dépôt.
+From the repository: nothing to install, `python e2sim_cli.py …`, `E2SIM_ROOT` = root of the repository.
 
-Comme package (commande `e2sim`, plugin pytest déclaré, SDK `target/` + `mk/` dans `<prefix>/share/e2sim`) :
+As a package (`e2sim` command, pytest plugin, SDK `target/` + `mk/` in `<prefix>/share/e2sim`):
 
 ```
 pip install "e2sim[test,report] @ git+https://github.com/laurentolive/e2Sim"
 e2sim --version
-e2sim root          # dossier du SDK : E2SIM_ROOT des makefiles
+e2sim root          # SDK directory: E2SIM_ROOT of the makefiles
 ```
 
-Makefile d'un firmware hors du dépôt : `E2SIM_ROOT := $(shell e2sim root)` puis `include $(E2SIM_ROOT)/mk/e2sim.mk`.
-Ne pas mettre de clé `python:` dans `e2sim_toolchains.yaml` qui désignerait un autre Python que celui du package.
-
-## Démarrage rapide
+## Quick start
 
 ```
 cd examples/fan
-make                       # toolchain par défaut du registre (host32)
-make TOOLCHAIN=host64
-make test                  # build + pytest
-make test-all              # host32 et host64
-python ../../e2sim_cli.py run sim/hmi.board.yaml --power-on --duration 2 --snapshot LCD=out/lcd.png
-python ../../e2sim_cli.py gui sim/hmi.board.yaml       # GUI web : http://127.0.0.1:8080/
-python ../../e2sim_cli.py gui sim/system.yaml          # les deux cartes
+make                    # default toolchain (host32)
+make test-all           # host32 and host64
+make demo               # demonstration in the web GUI, chapter by chapter
+python ../../e2sim_cli.py gui sim/system.yaml          # both boards: http://127.0.0.1:8080/
 ```
 
-## Porter un firmware
-
-1. **Adaptateur HAL** : chaque fonction de la HAL appelle `e2sim_yield()` puis l'API `e2sim.h`
-   (modèle : [examples/fan/hal_e2sim](examples/fan/hal_e2sim)). Une fois par famille de HAL.
-2. **Makefile** :
-   ```make
-   E2SIM_ROOT := <chemin vers e2Sim>
-   include $(E2SIM_ROOT)/mk/e2sim.mk
-   $(eval $(call e2sim_firmware,mon_produit,<sources sans HAL MCU ni BSP>,<includes>,<defines>))
-   ```
-3. **board.yaml** : ports (index = constantes d'enum de la HAL, résolues dans le DWARF), modèles, alimentation
-   ([exemple](examples/fan/sim/hmi.board.yaml)).
-4. **Modèles** Python (optionnel) et **tests** pytest ([exemple](examples/fan/tests/test_fan_hmi.py)).
-
 ```python
-def test_power_on(sim):                  # fixture du plugin e2sim.pytest_plugin
+def test_power_on(sim):                  # fixture of the e2sim pytest plugin
     sim["BTN_POWER"].press(ms=300)
     sim.run(s=1)
     assert sim["SELF_HOLD"] == 1
@@ -91,17 +77,16 @@ def test_power_on(sim):                  # fixture du plugin e2sim.pytest_plugin
 
 ## Debug (VS Code)
 
-[examples/fan/.vscode](examples/fan/.vscode) : lancer la tâche **e2sim connect** (host en temps réel, en
-attente du firmware), puis la configuration **fan_hmi (host32)** : le runner démarre sous gdb, les breakpoints
-du firmware restent valides après un reset.
+[examples/fan/.vscode](examples/fan/.vscode): start the task **e2sim connect** (host in real time, waiting for the
+firmware), then the configuration **fan_hmi (host32)**: the runner starts under gdb, the breakpoints of the
+firmware stay valid after a reset.
 
-## Licence
+## License
 
-`e2sim license` affiche la licence ; `e2sim license choose | activate [CLÉ] | deactivate | check | buy | portal`.
-La licence est vérifiée au lancement de `run`, `gui`, `connect`, `replay` et une fois par session pytest ; elle ne
-bloque jamais une simulation (Démonstration par défaut). En CI : aucun dialogue, clé dans `E2SIM_LICENSE_KEY`.
-`E2SIM_NO_DIALOG=1` supprime les dialogues, `E2SIM_NO_GUI=1` force la console.
+`e2sim license` shows the license; `e2sim license choose | activate [KEY] | deactivate | check | buy | portal`.
+Checked when `run`, `gui`, `connect`, `replay` start and once per pytest session; it never blocks a simulation
+(Demonstration by default). In CI: no dialog, key in `E2SIM_LICENSE_KEY`. `E2SIM_NO_DIALOG=1` removes the dialogs,
+`E2SIM_NO_GUI=1` forces the console.
 
-
-Outil PC (`e2sim/`, `mk/`, `docs/`) : [PolyForm Noncommercial 1.0.0](LICENSE.md) + licence commerciale.
-`target/` et `examples/` : MIT (compilés avec le firmware, à recopier librement).
+PC tool (`e2sim/`, `mk/`, `docs/`): [PolyForm Noncommercial 1.0.0](LICENSE.md) + commercial license.
+`target/` and `examples/`: MIT (compiled with the firmware, free to copy).
