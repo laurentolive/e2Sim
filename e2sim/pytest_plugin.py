@@ -13,6 +13,7 @@ Options: --e2sim-toolchain <name> (default: E2SIM_TOOLCHAIN, board, registry), -
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -23,6 +24,8 @@ def pytest_addoption(parser):
     g = parser.getgroup("e2sim")
     g.addoption("--e2sim-toolchain", default=None, help="toolchain of the firmware build to simulate")
     g.addoption("--e2sim-update-refs", action="store_true", help="rewrite the reference images")
+    g.addoption("--e2sim-xlsx", metavar="FILE", default=None,
+                help="Excel traceability report (requirement -> test -> verdict), e2Unit layout")
     g.addoption("--e2sim-record", metavar="DIR", default=None,
                 help="record every test (DIR/<test>.e2simrec): replay with e2sim replay")
 
@@ -59,6 +62,53 @@ def pytest_sessionstart(session):
     text = getattr(config, "_e2sim_license", None)
     if xml is not None and text:
         xml.add_global_property("license", text)
+
+
+def _report(config):
+    rep = getattr(config, "_e2sim_report", None)
+    if rep is None and config.getoption("--e2sim-xlsx"):
+        from .report import SessionReport
+
+        rep = config._e2sim_report = SessionReport(
+            name=Path(str(config.rootpath)).name, license=getattr(config, "_e2sim_license", "") or "",
+            toolchain=config.getoption("--e2sim-toolchain") or os.environ.get("E2SIM_TOOLCHAIN", "") or "default")
+    return rep
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """One line of the Excel report per test: worst phase (setup / call / teardown)."""
+    outcome = yield
+    rep = _report(item.config)
+    if rep is None:
+        return
+    from .report import ERROR, FAIL, PASS, SKIP, TestRecord
+
+    r = outcome.get_result()
+    rec = getattr(item, "_e2sim_record", None)
+    if rec is None:
+        doc = (getattr(item, "obj", None).__doc__ or "").strip().splitlines() if getattr(item, "obj", None) else []
+        reqs = [x for m in item.iter_markers("e2sim_requirement") for x in m.args]
+        rec = item._e2sim_record = TestRecord(id=item.name, title=doc[0] if doc else item.name,
+                                              function=item.nodeid, requirements=reqs)
+        rep.tests.append(rec)
+    rec.duration += r.duration
+    if r.skipped and rec.status == PASS:
+        rec.status = SKIP
+        rec.message = str(r.longrepr[2]) if isinstance(r.longrepr, tuple) else ""
+    elif r.failed and rec.status in (PASS, SKIP):
+        rec.status = FAIL if r.when == "call" else ERROR
+        crash = getattr(r.longrepr, "reprcrash", None)
+        rec.message = (crash.message if crash is not None else str(r.longrepr))[:2000]
+
+
+def pytest_sessionfinish(session):
+    rep = getattr(session.config, "_e2sim_report", None)
+    path = session.config.getoption("--e2sim-xlsx")
+    if rep is not None and path:
+        from .report import write_xlsx
+
+        write_xlsx(rep, path)
 
 
 def pytest_report_header(config):
