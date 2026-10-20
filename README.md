@@ -11,9 +11,12 @@ une GUI web et d'autres firmwares).
   données de la HAL.
 - Un reset (logiciel, watchdog) **recharge la DLL dans le même process** : RAM et init du firmware comme au
   boot, le debugger reste attaché.
-- Tests **pytest** reproductibles au bit près, en temps accéléré.
+- Tests **pytest** reproductibles au bit près, en temps accéléré (runs longs équivalents au pas fixe).
+- Plusieurs firmwares reliés (`system.yaml`) : un firmware remplace un modèle.
+- **eScope** sur chaque instance sans code dans le firmware (endpoint V3 du host, port affiché par
+  `e2sim run`), et relais TCP de n'importe quelle UART (`tcp:` dans `board.yaml`).
 
-Spécification : [docs/SPEC.md](docs/SPEC.md). État : **V0** (cœur, host Python, exemple `fan_hmi`).
+Spécification : [docs/SPEC.md](docs/SPEC.md). État : V0 terminée, V1 en cours (multi-firmware, eScope, relais TCP faits ; GUI web, record/replay, licence à venir).
 
 ## Arborescence
 

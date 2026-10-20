@@ -51,6 +51,13 @@ def cmd_run(args) -> int:
         if args.connect:
             print(f"e2sim: waiting for the firmware on 127.0.0.1:{args.connect} ...", flush=True)
         sim.start()
+        for st in sim.instances:
+            if st.escope is not None:
+                print(f"e2sim: {st.name}: eScope on TCP:127.0.0.1,{st.escope.port} "
+                      f"(protocol V3, {st.inst.ptr_size * 8} bits addresses, symbols {st.inst.dll.name})", flush=True)
+            for p in st.ports.values():
+                if p.relay is not None:
+                    print(f"e2sim: {st.name}.{p.name} on TCP:127.0.0.1,{p.relay.port}", flush=True)
         if args.power_on:
             sim.power_on()
         if args.duration is not None:

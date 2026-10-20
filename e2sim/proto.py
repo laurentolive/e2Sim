@@ -24,6 +24,8 @@ REC_BLOCK = 0x13
 REC_LOG = 0x14
 REC_RESET = 0x15
 REC_MEM = 0x16
+REC_SAMPLE_ACK = 0x17
+REC_SAMPLE = 0x18
 
 REC_IN = 0x20
 REC_STREAM_IN = 0x21
@@ -32,6 +34,7 @@ REC_RESET_IN = 0x23
 REC_POWER = 0x24
 REC_MEM_READ = 0x25
 REC_MEM_WRITE = 0x26
+REC_SAMPLE_CFG = 0x27
 
 MEM_OK = 0
 
@@ -168,5 +171,9 @@ def decode_done(r: Reader) -> Done:
             add(("reset", RESET_CAUSES.get(r.u8(), "?"), r.u64(), r.u64()))
         elif rec == REC_MEM:
             add(("mem", r.u32(), r.u8(), r.data()))
+        elif rec == REC_SAMPLE_ACK:
+            add(("sample_ack", r.u8(), r.u16()))
+        elif rec == REC_SAMPLE:
+            add(("sample", r.u64(), r.data()))
         else:
             raise LinkError(f"unknown record 0x{rec:02x}")

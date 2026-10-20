@@ -29,6 +29,8 @@
 #define MAX_STREAMS     16u
 #define STREAM_RX_SIZE  8192u
 #define MAX_BLOCKS      16u
+#define MAX_SAMPLES     64u
+#define SAMPLE_BYTES    1024u
 #define FIBER_STACK     (1u << 20)
 #define RESET_TIME_NS   100000u /* reset + boot: a reset held active cannot loop at zero time */
 
@@ -114,6 +116,14 @@ static struct
     unsigned pending_n;
     stream_rx_t streams[MAX_STREAMS];
     block_t blocks[MAX_BLOCKS];
+
+    /* memory sampling for the host (eScope endpoint): does not change the firmware behaviour */
+    uint64_t sample_period;
+    uint64_t sample_next;
+    unsigned sample_n;
+    uintptr_t sample_addr[MAX_SAMPLES];
+    uint16_t sample_size[MAX_SAMPLES];
+    wbuf_t samples; /* REC_SAMPLE records: do not stop a long run */
 
     /* host link */
     wbuf_t done;  /* records of MSG_DONE being built */
@@ -255,6 +265,10 @@ static void pending_push(e2sim_isr_t isr, void *ctx)
 static void recompute_deadline(void)
 {
     uint64_t d = g.quantum_end;
+    if ((g.sample_period != 0u) && (g.sample_next < d))
+    {
+        d = g.sample_next;
+    }
     if (g.irq_disabled == 0)
     {
         if (g.pending_n != 0u)
@@ -425,6 +439,36 @@ static uint64_t next_timer(void)
     return d;
 }
 
+/* samples due at the current time (scheduler context, between two runs of the fiber) */
+static void sample_due(void)
+{
+    while ((g.sample_period != 0u) && (g.sample_next <= g.now))
+    {
+        size_t n = 0;
+        for (unsigned i = 0; i < g.sample_n; i++)
+        {
+            n += g.sample_size[i];
+        }
+        wbuf_u8(&g.samples, REC_SAMPLE);
+        wbuf_u64(&g.samples, g.sample_next);
+        wbuf_u16(&g.samples, (uint16_t)n);
+        for (unsigned i = 0; i < g.sample_n; i++)
+        {
+            wbuf_bytes(&g.samples, (const void *)g.sample_addr[i], g.sample_size[i]);
+        }
+        g.sample_next += g.sample_period;
+    }
+}
+
+/* MCU not running: no sample, the next one after the time jump */
+static void sample_skip(uint64_t until)
+{
+    if ((g.sample_period != 0u) && (g.sample_next < until))
+    {
+        g.sample_next += (until - g.sample_next + g.sample_period - 1u) / g.sample_period * g.sample_period;
+    }
+}
+
 /* one quantum (or up to until): same code path as one RUN of the host */
 static void run_slice(uint64_t until)
 {
@@ -432,6 +476,10 @@ static void run_slice(uint64_t until)
     for (;;)
     {
         service_due();
+        if (g.powered && (g.app_fiber != NULL))
+        {
+            sample_due();
+        }
         if (g.reset_pending >= 0)
         {
             mcu_reset((e2sim_reset_cause_t)g.reset_pending);
@@ -443,6 +491,7 @@ static void run_slice(uint64_t until)
             {
                 g.now = until;
             }
+            sample_skip(until);
             break;
         }
         if (g.halted)
@@ -791,6 +840,7 @@ static bool mem_valid(uintptr_t addr, size_t size, bool write)
 static void handle_run(void)
 {
     rbuf_t r = {g.rx.p, g.rx.n, 0, 0};
+    wbuf_reset(&g.samples);
     uint64_t until = rbuf_u64(&r);
     uint64_t from = rbuf_u64(&r);
     uint64_t quantum = rbuf_u64(&r);
@@ -912,6 +962,35 @@ static void handle_run(void)
             wbuf_u16(&g.done, 0);
             break;
         }
+        case REC_SAMPLE_CFG:
+        {
+            uint64_t period = rbuf_u64(&r);
+            unsigned n = rbuf_u16(&r);
+            size_t bytes = 0;
+            int bad = -1;
+            for (unsigned i = 0; i < n; i++)
+            {
+                uintptr_t addr = (uintptr_t)rbuf_u64(&r);
+                uint16_t size = rbuf_u16(&r);
+                if ((i < MAX_SAMPLES) && mem_valid(addr, size, false) && (bytes + size <= SAMPLE_BYTES))
+                {
+                    g.sample_addr[i] = addr;
+                    g.sample_size[i] = size;
+                    bytes += size;
+                }
+                else if (bad < 0)
+                {
+                    bad = (int)i;
+                }
+            }
+            g.sample_n = (bad < 0) ? n : 0u;
+            g.sample_period = ((bad < 0) && (n != 0u)) ? period : 0u;
+            g.sample_next = g.now - g.now % ((period != 0u) ? period : 1u) + period; /* aligned on the period */
+            wbuf_u8(&g.done, REC_SAMPLE_ACK);
+            wbuf_u8(&g.done, (bad < 0) ? MEM_OK : MEM_INVALID);
+            wbuf_u16(&g.done, (uint16_t)((bad < 0) ? 0 : bad));
+            break;
+        }
         default:
             fatal("unknown record 0x%02x", rec);
         }
@@ -941,6 +1020,7 @@ static void handle_run(void)
     wbuf_u8(&g.tx, g.powered ? 1u : 0u);
     wbuf_u8(&g.tx, g.halted ? 1u : 0u);
     wbuf_bytes(&g.tx, g.done.p, g.done.n);
+    wbuf_bytes(&g.tx, g.samples.p, g.samples.n);
     wbuf_u8(&g.tx, REC_END);
     if (wire_send(MSG_DONE, &g.tx) != 0)
     {

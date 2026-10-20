@@ -18,6 +18,8 @@ from . import png, proto, toolchains
 from .instance import Instance
 from .model import Model
 from .symbols import Symbols
+from .escope import EscopeEndpoint
+from .tcp import TcpServer
 
 
 class SimError(Exception):
@@ -50,6 +52,7 @@ class Port:
         self.mm: mmap.mmap | None = None
         self.listeners: list[Callable] = []         # models bound to this port
         self.links: list[Port] = []                 # ports of other instances fed by this one (system.yaml)
+        self.relay: TcpServer | None = None         # stream relayed to a TCP client (tcp: in board.yaml)
 
     # -- bit / value ---------------------------------------------------
     def get(self) -> int:
@@ -170,6 +173,7 @@ class InstanceState:
         self.control: list[bytes] = []              # power / reset records
         self.mem_replies: dict[int, tuple[int, bytes]] = {}
         self._latch_low_since: int | None = None
+        self.escope: EscopeEndpoint | None = None
 
     def port(self, cls: int, idx: int) -> Port:
         p = self.by_key.get((cls, idx))
@@ -201,6 +205,8 @@ class InstanceState:
         for idx in self.events_tx:
             w.u8(proto.REC_EVENT_IN).u16(idx)
         self.events_tx.clear()
+        if self.escope is not None:
+            w.b += self.escope.records()
         return bytes(w.b)
 
     def exchange(self, until_ns: int, extra: bytes = b"", quantum_ns: int = 0) -> int:
@@ -239,6 +245,8 @@ class InstanceState:
                 self._notify(p, data)
                 for dst in p.links:
                     self.sim._deliveries.append(("stream", dst, data))
+                if p.relay is not None:
+                    p.relay.send(data)
             elif kind == "event":
                 _, idx, t = rec
                 p = self.port(proto.CLASSES["EVENT"], idx)
@@ -266,6 +274,10 @@ class InstanceState:
             elif kind == "mem":
                 _, mid, status, data = rec
                 self.mem_replies[mid] = (status, data)
+            elif kind == "sample" and self.escope is not None:
+                self.escope.on_sample(rec[1], rec[2])
+            elif kind == "sample_ack" and self.escope is not None:
+                self.escope.on_sample_ack(rec[1], rec[2])
         self.powered = done.powered
         self.halted = done.halted
         if was_powered and not self.powered:
@@ -303,6 +315,16 @@ class InstanceState:
         if isinstance(rx, tuple):
             rx, cost = rx
         return bytes(rx), int(cost)
+
+    def process_external(self):
+        """At a quantum boundary: TCP clients (stream relays, eScope)."""
+        for p in self.ports.values():
+            if p.relay is not None:
+                data, _ = p.relay.take()
+                if data:
+                    p.write(data)
+        if self.escope is not None:
+            self.escope.process()
 
     def power_check(self):
         pw = self.board.power
@@ -446,6 +468,13 @@ class Sim:
             st.inst.xfer_handler = st.on_xfer
             self._load_models(st)
             st.inst.start()
+            for p in st.ports.values():
+                if p.spec.tcp is not None:
+                    p.relay = TcpServer(p.spec.tcp, f"{st.name}.{p.name}")
+            esc = st.board.escope
+            if esc.get("enabled", True):
+                st.escope = EscopeEndpoint(st, int(esc.get("port", 0)), round(float(esc.get("period_us", 1000)) * 1e3))
+                st.escope.addr_size = st.inst.ptr_size
         self._resolve_links()
         self.started = True
         for st in self.instances:
@@ -499,6 +528,13 @@ class Sim:
 
     def stop(self):
         for st in self.instances:
+            if st.escope is not None:
+                st.escope.close()
+                st.escope = None
+            for p in st.ports.values():
+                if p.relay is not None:
+                    p.relay.close()
+                    p.relay = None
             if st.inst is not None:
                 st.inst.stop()
             for p in st.ports.values():
@@ -555,6 +591,8 @@ class Sim:
             else:
                 dst._inst.events_tx.append(dst.idx)
         self._deliveries.clear()
+        for st in self.instances:
+            st.process_external()
         while self._actions and self._actions[0][0] <= self.now_ns:
             self._actions.pop(0)[2]()
         for task in self._periodic:

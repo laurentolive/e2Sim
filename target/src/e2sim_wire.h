@@ -33,6 +33,8 @@
 #define REC_LOG    0x14 /* u64 t, u8 level, str text */
 #define REC_RESET  0x15 /* u8 cause, u64 t, u64 module_base */
 #define REC_MEM    0x16 /* u32 id, u8 status, u16 n, bytes */
+#define REC_SAMPLE_ACK 0x17 /* u8 status (MEM_OK / MEM_INVALID), u16 index of the refused entry */
+#define REC_SAMPLE 0x18 /* u64 t, u16 n, bytes: one sample of the sampling list */
 
 /* records in MSG_RUN */
 #define REC_IN        0x20 /* u8 cls, u16 idx, i32 v */
@@ -42,6 +44,7 @@
 #define REC_POWER     0x24 /* u8 on */
 #define REC_MEM_READ  0x25 /* u32 id, u64 addr, u32 size */
 #define REC_MEM_WRITE 0x26 /* u32 id, u64 addr, u16 n, bytes */
+#define REC_SAMPLE_CFG 0x27 /* u64 period_ns (0: off), u16 n, {u64 addr, u16 size}... */
 
 #define MEM_OK      0
 #define MEM_INVALID 1
