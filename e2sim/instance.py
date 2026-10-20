@@ -110,9 +110,21 @@ class Instance:
 
     def run_payload(self, payload: bytes, xfer_replies: list[bytes] | None = None) -> proto.Done:
         """Send a RUN payload as it is (replay: with the recorded transaction answers)."""
+        self.send_payload(payload)
+        return self.recv_done(xfer_replies)
+
+    def send_payload(self, payload: bytes):
+        """First half of a RUN: the runner computes while the host serves the other instances."""
         if self.tap is not None:
             self.tap(1, payload)
         self.link.send(proto.MSG_RUN, payload)
+
+    def send_run(self, until_ns: int, records: bytes, from_ns: int = 0, quantum_ns: int = 0):
+        hdr = proto.Writer().u64(until_ns).u64(from_ns).u64(quantum_ns).b
+        self.send_payload(bytes(hdr + records + bytes([proto.REC_END])))
+
+    def recv_done(self, xfer_replies: list[bytes] | None = None) -> proto.Done:
+        """Second half of a RUN: transactions served, DONE returned."""
         while True:
             t, r = self.link.recv()
             if t == proto.MSG_DONE:

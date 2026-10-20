@@ -386,7 +386,11 @@ links:
   - [hmi.MOTOR_EN,  motor.ENABLE]          # bit out → bit in
 ```
 - Le host avance toutes les instances au même T (quantum commun, pas de runs longs), puis échange les deltas
-  et les streams. Les sorties d'une instance sont livrées aux autres **au quantum suivant**, quel que soit
+  et les streams. Les RUN sont envoyés à toutes les instances avant de collecter les réponses : les runners
+  calculent en parallèle (≈ ×8 sur l'exemple au lieu de ×3), le travail du host garde le même ordre. Des runs
+  longs exacts entre instances reliées demanderaient de revenir en arrière (instantanés de l'état des
+  firmwares) : une instance ne peut pas dépasser les autres de plus d'un quantum sans risquer de manquer une
+  entrée. Les sorties d'une instance sont livrées aux autres **au quantum suivant**, quel que soit
   l'ordre d'exécution des instances : pas de causalité inversée.
 - **Latence** : un échange entre deux firmwares passe par le host à la frontière du quantum, soit
   ≈ 1 quantum par sens. Les timeouts des protocoles inter-cartes doivent dépasser **2 quanta** ; sinon,

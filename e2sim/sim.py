@@ -261,9 +261,17 @@ class InstanceState:
 
     def exchange(self, until_ns: int, extra: bytes = b"", quantum_ns: int = 0) -> int:
         """Returns the boundary reached (< until_ns: a long run stopped on an output)."""
+        self.exchange_send(until_ns, extra, quantum_ns)
+        return self.exchange_recv(until_ns, quantum_ns)
+
+    def exchange_send(self, until_ns: int, extra: bytes = b"", quantum_ns: int = 0):
+        self.sim._run_from = self.sim.now_ns
+        self.inst.send_run(until_ns, self.records() + extra, self.sim.now_ns, quantum_ns)
+
+    def exchange_recv(self, until_ns: int, quantum_ns: int = 0) -> int:
         self.sim._run_from = self.sim.now_ns
         try:
-            done = self.inst.run(until_ns, self.records() + extra, self.sim.now_ns, quantum_ns)
+            done = self.inst.recv_done()
         except proto.HangError as e:
             raise SimError(self.hang_report(e)) from None
         self.apply(done)
@@ -722,10 +730,12 @@ class Sim:
         if long_run and len(self.instances) == 1:
             until = self._next_host_event(until)
             until = self.instances[0].exchange(until, quantum_ns=self.quantum_ns)
-        else:  # linked instances: quantum by quantum, all at the same time
+        else:  # linked instances: quantum by quantum, all at the same time, the runners in parallel
             until = min(until, self.now_ns + self.quantum_ns)
             for st in self.instances:
-                st.exchange(until)
+                st.exchange_send(until)
+            for st in self.instances:  # same order of the host work as one after the other
+                st.exchange_recv(until)
         self.now_ns = until
         for st in self.instances:
             st.drain_lines()
@@ -888,31 +898,46 @@ def replay(path: str | Path, *, toolchain: str | None = None, work_dir: str | Pa
     sim = Sim(header["board"], toolchain=toolchain or header.get("toolchain"), work_dir=work, connect=connect)
     if [st.name for st in sim.instances] != header["instances"]:
         raise SimError(f"{path}: instances {header['instances']}, board gives {[st.name for st in sim.instances]}")
+    # transaction answers of each RUN: the following XFER entries of its instance (parallel runs interleave them)
+    answers: dict[int, list[bytes]] = {}
+    last_run: dict[int, int] = {}
+    for n, (kind, inst, payload) in enumerate(entries):
+        if kind == record_mod.KIND_RUN:
+            last_run[inst] = n
+            answers[n] = []
+        elif kind == record_mod.KIND_XFER and inst in last_run:
+            answers[last_run[inst]].append(payload)
     sim.replaying = True
     try:
         sim.start()
         i = 0
         while i < len(entries):
             kind, inst, payload = entries[i]
-            i += 1
-            st = sim.instances[inst]
             if kind == record_mod.KIND_BLOCK:
                 idx, offset = struct.unpack_from("<HI", payload)
-                p = st.port(proto.CLASSES["BLOCK"], idx)
+                p = sim.instances[inst].port(proto.CLASSES["BLOCK"], idx)
                 p._block()[offset:offset + len(payload) - 6] = payload[6:]
-                continue
-            if kind != record_mod.KIND_RUN:
-                raise SimError(f"{path}: transaction answer without RUN")
-            replies = []
-            while i < len(entries) and entries[i][0] == record_mod.KIND_XFER:
-                replies.append(entries[i][2])
                 i += 1
-            until, quantum = struct.unpack_from("<Q", payload)[0], struct.unpack_from("<Q", payload, 16)[0]
-            done = st.inst.run_payload(payload, replies)
-            st.apply(done)
-            sim.now_ns = max(sim.now_ns, done.end if quantum else until)
-            if replies:
-                raise SimError(f"{path}: {len(replies)} transaction answers not used (firmware changed ?)")
+                continue
+            # consecutive RUNs of different instances: sent together, as recorded (parallel runners)
+            group = []
+            while i < len(entries) and entries[i][0] != record_mod.KIND_BLOCK:
+                k, n_inst, pl = entries[i]
+                if k == record_mod.KIND_RUN:
+                    if any(g[0] == n_inst for g in group):
+                        break
+                    group.append((n_inst, pl, answers[i]))
+                i += 1
+            for n_inst, pl, _ in group:
+                sim.instances[n_inst].inst.send_payload(pl)
+            for n_inst, pl, replies in group:
+                st = sim.instances[n_inst]
+                done = st.inst.recv_done(replies)
+                st.apply(done)
+                until, quantum = struct.unpack_from("<Q", pl)[0], struct.unpack_from("<Q", pl, 16)[0]
+                sim.now_ns = max(sim.now_ns, done.end if quantum else until)
+                if replies:
+                    raise SimError(f"{path}: {len(replies)} transaction answers not used (firmware changed ?)")
         same = sim.trace_digest() == footer["digest"] and sim.now_ns == footer["now_ns"]
     finally:
         sim.stop()
