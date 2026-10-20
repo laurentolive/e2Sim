@@ -209,3 +209,39 @@ def test_t17_reset_process(e2sim_board, e2sim_toolchain, tmp_path):
         sim["LCD"].assert_matches("ref/wdt_reset.png")
     _, same = replay(rec, work_dir=tmp_path / "replay")
     assert same, "a process reset replays identically"
+
+
+def _with_baud(e2sim_board, e2sim_toolchain, tmp_path, port, baud):
+    sim = e2sim.Sim(e2sim_board, toolchain=e2sim_toolchain, work_dir=tmp_path)
+    sim.board.ports[port].baud = baud
+    return sim
+
+
+@e2sim.requirement("E2SIM-BAUD-01")
+def test_t18_stream_line_rate(e2sim_board, e2sim_toolchain, tmp_path):
+    """baud: the bytes of the firmware arrive at the line rate (10 bits per byte)."""
+    with _with_baud(e2sim_board, e2sim_toolchain, tmp_path, "UART_DEBUG", 9600) as sim:
+        sim["BTN_POWER"].press(ms=300)
+        sim.run_until(lambda: sim["SELF_HOLD"] == 1, timeout_s=1)
+        boot_line = next(d for t, i, p, d in sim.trace if p == "UART_DEBUG")
+        t0 = next(t for t, i, p, d in sim.trace if p == "UART_DEBUG")
+        sim.run_until(lambda: len(sim["UART_DEBUG"].data) >= len(boot_line), timeout_s=1)
+        elapsed = sim.now_ns - t0
+        expected = len(boot_line) * 10 / 9600 * 1e9
+        assert expected <= elapsed <= expected + 2e6, f"{len(boot_line)} bytes at 9600 baud: {elapsed / 1e6:.1f} ms"
+
+
+@e2sim.requirement("E2SIM-BAUD-02")
+def test_t18_link_saturated(e2sim_board, e2sim_toolchain, tmp_path):
+    """300 baud cannot carry a 7 byte frame every 100 ms: the bytes pile up on the line, the delay grows."""
+    backlog = {}
+    for baud in (300, 9600):
+        with _with_baud(e2sim_board, e2sim_toolchain, tmp_path / str(baud), "UART_LINK", baud) as sim:
+            boot(sim)
+            fan_on(sim)
+            sim.run(s=1)
+            first = len(sim["UART_LINK"].rx_q)
+            sim.run(s=2)
+            backlog[baud] = (first, len(sim["UART_LINK"].rx_q))
+    assert backlog[300][1] > backlog[300][0] + 30, f"300 baud: backlog grows {backlog[300]}"
+    assert backlog[9600][1] <= 7, f"9600 baud: no backlog {backlog[9600]}"

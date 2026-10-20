@@ -429,7 +429,11 @@ TCP. e2Sim s'appuie sur l'évolution « PC simulation » d'eScope (adresses 64 b
   endpoints peuvent coexister, sur des ports différents.
 - Relais TCP d'un stream (sert aussi pour un terminal ou un outil PC) : octets reçus injectés dans le
   contexte scheduler à la frontière d'un quantum et journalisés (replay exact) ; octets émis envoyés au
-  client, jetés sans client ; option `baud:` pour limiter au débit simulé (débordements représentatifs).
+  client, jetés sans client ; option `baud:` du port : débit de la ligne simulée (10 bits par octet), dans les
+  deux sens : le firmware reçoit chaque octet à la fin de sa transmission, ses octets émis arrivent aux modèles,
+  aux liens et aux relais au même rythme. Une liaison sous-dimensionnée se voit (retard qui grandit). Le
+  débordement du buffer d'émission du firmware (`ERR_TXOVF` d'eScope) dépend du driver UART du firmware : il
+  n'apparaît que si l'adaptateur HAL modélise ce buffer.
 - Dans ce mode, c'est le firmware qui lit sa mémoire : son `eScopeCfg.h` de variante PC doit gérer la
   relocation (`ESCOPE_ADDR_TO_PTR` avec `__ImageBase`) et le contrôle d'adresse (`ESCOPE_ADDR_IS_VALID`).
   Le firmware exemple fournit ce modèle de fichier.
@@ -653,6 +657,7 @@ une fonctionnalité visible a aussi un chapitre de démo. Une nouvelle fonctionn
 | Runs longs, temps accéléré | 10 min en quelques secondes | T00, T10 | 9 |
 | Injection de fautes | trames corrompues, rotor bloqué, NVM corrompue, capteur absent | T03 à T08 | 5 à 8 |
 | Forçage d'une entrée pilotée par un modèle (`force` / `release`) | `VBAT_ADC` forcé à 0 | T16 | 6 |
+| Débit d'une ligne série (`baud:`) | `UART_DEBUG` à 9600, liaison moteur saturée à 300 | T18 | — |
 | Record / replay, sur l'autre architecture | enregistrement d'un scénario, rejoué | T12 | 11 |
 | `sim.var()` / `set_var()` | variables des deux firmwares | tous | 3, 9 |
 | Endpoint eScope intégré au host | `fan_hmi` sans code eScope | T14 | 3 |

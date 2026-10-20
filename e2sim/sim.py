@@ -55,6 +55,11 @@ class Port:
         self.listeners: list[Callable] = []         # models bound to this port
         self.links: list[Port] = []                 # ports of other instances fed by this one (system.yaml)
         self.relay: TcpServer | None = None         # stream relayed to a TCP client (tcp: in board.yaml)
+        # baud: bytes on the line, (end of transmission, byte); host -> firmware and firmware -> host
+        self.tx_q: list[tuple[int, int]] = []
+        self.rx_q: list[tuple[int, int]] = []
+        self._tx_line = 0
+        self._rx_line = 0
 
     # -- bit / value ---------------------------------------------------
     @property
@@ -99,10 +104,25 @@ class Port:
     def __repr__(self): return f"<Port {self.name} {self.type} {self.value if self.type in ('bit', 'value') else ''}>"
 
     # -- stream --------------------------------------------------------
+    @property
+    def byte_ns(self) -> int:
+        """Time of one byte on the line (10 bits), 0: unlimited."""
+        return round(10e9 / self.spec.baud) if self.spec.baud else 0
+
     def write(self, data: bytes | str):
+        """Bytes to the firmware; with baud:, received by the firmware at the end of their transmission."""
         if self.type != "stream":
             raise SimError(f"{self.name}: not a stream")
-        self._inst.stream_tx.append((self.idx, data.encode() if isinstance(data, str) else bytes(data)))
+        data = data.encode() if isinstance(data, str) else bytes(data)
+        bn = self.byte_ns
+        if not bn:
+            self._inst.stream_tx.append((self.idx, data))
+            return
+        t = max(self._tx_line, self._sim.now_ns)
+        for b in data:
+            t += bn
+            self.tx_q.append((t, b))
+        self._tx_line = t
 
     @property
     def data(self) -> bytes:
@@ -223,6 +243,11 @@ class InstanceState:
                 if self.sent.get(key, 0) != p.value:
                     w.u8(proto.REC_IN).u8(p.cls).u16(p.idx).i32(p.value)
                     self.sent[key] = p.value
+        for p in self.paced:
+            if p.tx_q and p.tx_q[0][0] <= self.sim.now_ns:
+                n = next((i for i, (t, _) in enumerate(p.tx_q) if t > self.sim.now_ns), len(p.tx_q))
+                self.stream_tx.append((p.idx, bytes(b for _, b in p.tx_q[:n])))
+                del p.tx_q[:n]
         for idx, data in self.stream_tx:
             for i in range(0, len(data), 0xFFFF):
                 w.u8(proto.REC_STREAM_IN).u16(idx).data(data[i:i + 0xFFFF])
@@ -265,13 +290,16 @@ class InstanceState:
             elif kind == "stream":
                 _, idx, t, data = rec
                 p = self.port(proto.CLASSES["UART"], idx)
-                p.rx += data
                 self.sim.trace.append((t, self.name, p.name, data))
-                self._notify(p, data)
-                for dst in p.links:
-                    self.sim._deliveries.append(("stream", dst, data))
-                if p.relay is not None:
-                    p.relay.send(data)
+                bn = p.byte_ns
+                if bn:  # on the line: delivered at the end of the transmission of each byte
+                    tl = max(p._rx_line, t)
+                    for b in data:
+                        tl += bn
+                        p.rx_q.append((tl, b))
+                    p._rx_line = tl
+                else:
+                    self._deliver_rx(p, data)
             elif kind == "event":
                 _, idx, t = rec
                 p = self.port(proto.CLASSES["EVENT"], idx)
@@ -313,6 +341,33 @@ class InstanceState:
         if was_powered != self.powered and not self.sim.replaying:
             for m in self.models:
                 m.on_power(self.powered)
+
+    def _deliver_rx(self, p: Port, data: bytes):
+        """Bytes written by the firmware reach the host side: buffer, models, linked instances, TCP relay."""
+        p.rx += data
+        self._notify(p, data)
+        for dst in p.links:
+            self.sim._deliveries.append(("stream", dst, data))
+        if p.relay is not None:
+            p.relay.send(data)
+
+    @property
+    def paced(self) -> list[Port]:
+        return [p for p in self.ports.values() if p.type == "stream" and p.spec.baud]
+
+    def drain_lines(self):
+        """Bytes of the firmware whose transmission ended (baud:)."""
+        now = self.sim.now_ns
+        for p in self.paced:
+            if p.rx_q and p.rx_q[0][0] <= now:
+                n = next((i for i, (t, _) in enumerate(p.rx_q) if t > now), len(p.rx_q))
+                data = bytes(b for _, b in p.rx_q[:n])
+                del p.rx_q[:n]
+                self._deliver_rx(p, data)
+
+    def next_line_event(self) -> int | None:
+        times = [q[0][0] for p in self.paced for q in (p.tx_q, p.rx_q) if q]
+        return min(times) if times else None
 
     def _restart(self, done: proto.Done):
         """reset: process: the runner ended on a reset, a new process boots at the time of the reset."""
@@ -641,6 +696,9 @@ class Sim:
         for st in self.instances:
             if st._latch_low_since is not None:
                 t = min(t, st._latch_low_since + st.board.power.hold_ns)
+            line = st.next_line_event()
+            if line is not None:
+                t = min(t, line)
         q = self.quantum_ns
         t = self.now_ns + max(q, -(-(t - self.now_ns) // q) * q)  # next boundary >= t
         return min(t, max(limit, self.now_ns + q))
@@ -656,6 +714,8 @@ class Sim:
             for st in self.instances:
                 st.exchange(until)
         self.now_ns = until
+        for st in self.instances:
+            st.drain_lines()
         # outputs of linked instances reach their destination at the next quantum (spec §8)
         for kind, dst, v in self._deliveries:
             if kind == "value":

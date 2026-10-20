@@ -33,6 +33,7 @@ class PortSpec:
     fill: int = 0xFF
     cost_ns: int = 0
     tcp: int | None = None  # stream relayed to a local TCP server (spec §9.3)
+    baud: int | None = None  # stream: simulated line rate, 10 bits per byte (None: unlimited)
 
 
 @dataclass
@@ -102,7 +103,8 @@ def load(path: str | Path) -> Board:
                                default=int(p.get("default", 0)), framebuffer=p.get("framebuffer"),
                                size=p.get("size"), persist=bool(p.get("persist", False)),
                                fill=int(p.get("fill", 0xFF)), cost_ns=int(p.get("cost_ns", 0)),
-                               tcp=int(p["tcp"]) if p.get("tcp") is not None else None)
+                               tcp=int(p["tcp"]) if p.get("tcp") is not None else None,
+                               baud=int(p["baud"]) if p.get("baud") else None)
 
     models = []
     for m in d.get("models") or []:
