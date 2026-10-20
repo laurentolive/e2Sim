@@ -34,6 +34,7 @@ make test          # toolchain par défaut
 make test-all      # host32 et host64 (mêmes références d'écran)
 make demo          # démonstration dans la GUI
 make demo-check    # la démo en test
+make coverage      # couverture des firmwares par la campagne : out/coverage/index.html
 ```
 
 **Carte moteur `fan_motor`** : régulation PI de vitesse sur tachymètre, PWM, comparateur de courant sur

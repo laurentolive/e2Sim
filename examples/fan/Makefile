@@ -27,6 +27,13 @@ all: $(E2SIM_FIRMWARES)
 test: all
 	@"$(E2SIM_PY)" -m pytest tests -q --e2sim-toolchain $(E2SIM_TC) $(PYTEST_OPTS)
 
+# coverage of the firmwares by the whole campaign: build/<toolchain>/*.gcda, report in out/coverage
+coverage:
+	@$(E2SIM) fs rm $(OUT)
+	@$(MAKE) --no-print-directory all COVERAGE=1
+	-@"$(E2SIM_PY)" -m pytest tests -q --e2sim-toolchain $(E2SIM_TC) $(PYTEST_OPTS)
+	@$(E2SIM) coverage $(OUT) --sources . --html out/coverage
+
 demo: all
 	@"$(E2SIM_PY)" demo/demo.py --toolchain $(E2SIM_TC) $(DEMO_OPTS)
 
@@ -42,4 +49,4 @@ test-all:  # both builds first: some tests replay a record on the other architec
 clean:
 	@$(E2SIM) fs rm $(BUILD) out
 
-.PHONY: all test test-all demo demo-check clean
+.PHONY: all test test-all coverage demo demo-check clean

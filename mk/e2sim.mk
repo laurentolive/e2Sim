@@ -41,6 +41,14 @@ OUT := $(BUILD)/$(E2SIM_TC)
 E2SIM_WARN   := -Wall -Wextra -Wshadow -Wpointer-arith -Wstrict-prototypes -Wundef
 E2SIM_CFLAGS ?= -std=c11 -g3 -O0 -funsigned-char $(E2SIM_WARN)  # -g3: macros in the DWARF (board.yaml)
 
+# COVERAGE=1: gcov counters, written when the DLL is unloaded (reset, end); report: e2sim coverage $(OUT)
+ifeq ($(COVERAGE),1)
+E2SIM_FW_FLAGS += --coverage
+endif
+# the DLLs are rebuilt when the options change (COVERAGE, defines...)
+E2SIM_STAMP := $(OUT)/firmware.flags
+$(shell $(E2SIM) fs stamp $(E2SIM_STAMP) "$(E2SIM_CFLAGS) $(E2SIM_FW_FLAGS)")
+
 # fixed image base: stable addresses build after build (eScope, sim.var)
 E2SIM_DLL_BASE ?= 0x10000000
 ifeq ($(E2SIM_PTR_SIZE),8)
@@ -70,10 +78,10 @@ runner: $(RUNNER)
 #################################
 # firmware DLL: $(call e2sim_firmware,name,sources,include dirs,defines)
 define e2sim_firmware
-$(OUT)/$(1).dll: $(2) $(wildcard $(addsuffix /*.h,$(3))) $(RUNNER_LIB)
+$(OUT)/$(1).dll: $(2) $(wildcard $(addsuffix /*.h,$(3))) $(RUNNER_LIB) $$(E2SIM_STAMP)
 	@echo e2sim: building $$@
 	@$$(E2SIM) fs mkdir $$(@D)
-	@"$$(CC)" $$(E2SIM_CFLAGS) -Dmain=e2sim_app_main -DE2SIM_DLL_BASE=$$(E2SIM_DLL_BASE) $(addprefix -D,$(4)) $$(E2SIM_INCS) $(addprefix -I,$(3)) \
+	@"$$(CC)" $$(E2SIM_CFLAGS) $$(E2SIM_FW_FLAGS) -Dmain=e2sim_app_main -DE2SIM_DLL_BASE=$$(E2SIM_DLL_BASE) $(addprefix -D,$(4)) $$(E2SIM_INCS) $(addprefix -I,$(3)) \
 		-shared -static -o $$@ $(2) $(RUNNER_LIB) \
 		-Wl,--image-base=$$(E2SIM_DLL_BASE) -Wl,--disable-dynamicbase $$(E2SIM_ARCH_LDFLAGS) \
 		-Wl,-Map=$$(OUT)/$(1).map

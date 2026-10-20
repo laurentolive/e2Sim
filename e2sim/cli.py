@@ -11,6 +11,12 @@ from . import toolchains
 
 
 def cmd_fs(args) -> int:
+    if args.op == "stamp":  # stamp FILE TEXT: written only when TEXT changes (make dependency on options)
+        p, text = Path(args.paths[0]), " ".join(args.paths[1:])
+        if not p.is_file() or p.read_text(encoding="utf-8") != text:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text, encoding="utf-8")
+        return 0
     for p in map(Path, args.paths):
         if args.op == "mkdir":
             p.mkdir(parents=True, exist_ok=True)
@@ -30,6 +36,25 @@ def sdk_root() -> Path:
     if (share / "mk" / "e2sim.mk").is_file():
         return share
     raise toolchains.ToolchainError("e2Sim SDK (target/, mk/) not found")
+
+
+def cmd_coverage(args) -> int:
+    from . import coverage, pe
+
+    build = Path(args.build)
+    reg = toolchains.load(Path(args.registry) if args.registry else None)
+    dll = next(build.glob("*.dll"), None)
+    tc = reg.by_arch(pe.read(dll).arch) if dll else reg.get(args.toolchain)
+    cov = coverage.collect(build, tc.tool("gcov"), Path(args.sources) if args.sources else None)
+    if not cov:
+        print(f"e2sim: no coverage data (*.gcda) in {build}: build with COVERAGE=1 and run the tests")
+        return 1
+    root = Path(args.sources).resolve() if args.sources else None
+    print(coverage.summary(cov, root))
+    if args.html:
+        coverage.write_html(cov, Path(args.html))
+        print(f"e2sim: report {Path(args.html) / 'index.html'}")
+    return 0
 
 
 def cmd_root(args) -> int:
@@ -179,11 +204,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--version", action="version", version=f"e2sim {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    p = sub.add_parser("coverage", help="coverage of the firmware (build COVERAGE=1, then the tests)")
+    p.add_argument("build", help="build directory of the DLLs (build/<toolchain>)")
+    p.add_argument("--sources", help="keep the sources under this directory only")
+    p.add_argument("--html", help="HTML report directory")
+    p.add_argument("--toolchain")
+    p.add_argument("--registry")
+    p.set_defaults(func=cmd_coverage)
+
     p = sub.add_parser("root", help="directory of the SDK (target/, mk/): E2SIM_ROOT of the makefiles")
     p.set_defaults(func=cmd_root)
 
     p = sub.add_parser("fs", help="portable file operations for the makefiles")
-    p.add_argument("op", choices=["mkdir", "rm"])
+    p.add_argument("op", choices=["mkdir", "rm", "stamp"])
     p.add_argument("paths", nargs="+")
     p.set_defaults(func=cmd_fs)
 

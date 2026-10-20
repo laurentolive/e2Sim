@@ -25,6 +25,13 @@ pipeline {
                 }
             }
         }
+        stage('Coverage') {
+            steps {
+                dir('examples/fan') {
+                    bat 'make coverage TOOLCHAIN=host32 PYTEST_OPTS="-q"'
+                }
+            }
+        }
         stage('Fan example') {
             steps {
                 dir('examples/fan') {
@@ -37,7 +44,7 @@ pipeline {
     post {
         always {
             junit 'selftest/out/*.xml, examples/fan/out/*.xml'
-            archiveArtifacts artifacts: 'examples/fan/out/rec32/*.e2simrec, examples/fan/tests/ref/*.actual.png', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'examples/fan/out/rec32/*.e2simrec, examples/fan/tests/ref/*.actual.png, examples/fan/out/coverage/**', allowEmptyArchive: true
         }
     }
 }

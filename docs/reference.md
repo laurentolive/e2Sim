@@ -16,6 +16,7 @@ Command line, configuration files, Python API, pytest plugin and target API. Tut
 | `replay FILE.e2simrec [--toolchain T] [--connect PORT]` | send a record again, check the outputs are the same (exit 1 if not) |
 | `license [status\|choose\|activate [KEY]\|deactivate\|check\|buy\|portal]` | license |
 | `toolchain list` / `toolchain mk [NAME] --dir DIR` | toolchains of `e2sim_toolchains.yaml` / fragment for make |
+| `coverage BUILD_DIR [--sources DIR] [--html DIR]` | coverage of the firmware (build `COVERAGE=1`, then run the tests): summary + annotated HTML |
 | `root` | directory of the SDK (`target/`, `mk/`): `E2SIM_ROOT` of the makefiles |
 | `fs mkdir\|rm PATHS` | portable file operations for the makefiles |
 
@@ -44,7 +45,8 @@ include $(E2SIM_ROOT)/mk/e2sim.mk
 $(eval $(call e2sim_firmware,NAME,SOURCES,INCLUDE_DIRS,DEFINES))
 ```
 
-Builds `$(BUILD)/<toolchain>/NAME.dll` (+ `.map`) and `e2sim_runner.exe`. Variables: `TOOLCHAIN`, `BUILD` (default
+Builds `$(BUILD)/<toolchain>/NAME.dll` (+ `.map`) and `e2sim_runner.exe`. Variables: `TOOLCHAIN`, `COVERAGE=1` (gcov
+counters, written at each unload of the DLL and added up; the DLLs are rebuilt when the options change), `BUILD` (default
 `build`), `E2SIM_CFLAGS` (default `-std=c11 -g3 -O0 -funsigned-char` + warnings), `E2SIM_DLL_BASE` (default
 `0x10000000`). The sources are built with `-Dmain=e2sim_app_main` and `-DE2SIM_DLL_BASE=…`. `$(E2SIM_FIRMWARES)`
 lists the declared firmwares.
