@@ -1,0 +1,27 @@
+# Fan example - HMI board on e2Sim (spec §6)
+name: fan_hmi
+firmware: ../build/{toolchain}/fan_hmi.dll   # main() of the firmware is the entry point
+quantum_ms: 1
+cpu: { yield_cost_ns: 1000 }
+
+# power latch: on while the POWER key is pressed or SELF_HOLD is driven by the firmware
+power: { mode: latch, button: BTN_POWER, hold: SELF_HOLD }
+
+ports:
+  BTN_POWER:  { class: GPIO,  idx: HAL_GPIO_BTN_POWER, type: bit, dir: in }
+  BTN_PLUS:   { class: GPIO,  idx: HAL_GPIO_BTN_PLUS,  type: bit, dir: in }
+  BTN_MINUS:  { class: GPIO,  idx: HAL_GPIO_BTN_MINUS, type: bit, dir: in }
+  LED:        { class: GPIO,  idx: HAL_GPIO_LED,       type: bit, dir: out }
+  SELF_HOLD:  { class: GPIO,  idx: HAL_GPIO_SELF_HOLD, type: bit, dir: out }
+  MOTOR_EN:   { class: GPIO,  idx: HAL_GPIO_MOTOR_EN,  type: bit, dir: out }
+  VBAT_ADC:   { class: ADC,   idx: HAL_ADC_VBAT,       type: value, dir: in }
+  TEMP_SPI:   { class: SPI,   idx: HAL_SPI_SENSOR,     type: xfer, cost_ns: 30000 }   # 3 bytes at 1 MHz
+  UART_LINK:  { class: UART,  idx: HAL_UART_LINK,      type: stream }
+  UART_DEBUG: { class: UART,  idx: HAL_UART_DEBUG,     type: stream }
+  LCD:        { class: BLOCK, idx: HALSIM_BLOCK_LCD,   type: block, framebuffer: { w: 128, h: 64, format: RGB565 } }
+  EEPROM:     { class: BLOCK, idx: HALSIM_BLOCK_NVM,   type: block, size: 2048, persist: true, fill: 0xFF }
+
+models:
+  - { class: models.battery.Battery,         ports: { adc: VBAT_ADC } }
+  - { class: models.temp_sensor.TempSensor,  ports: { spi: TEMP_SPI } }
+  - { class: models.motor_board.MotorBoard,  ports: { uart: UART_LINK } }   # replaced by fan_motor in system.yaml (V1)

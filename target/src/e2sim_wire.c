@@ -1,0 +1,254 @@
+/*
+ * e2Sim - host <-> runner wire protocol (MIT)
+ */
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+
+#include <stdlib.h>
+#include <string.h>
+
+#include "e2sim_wire.h"
+
+static SOCKET s_sock = INVALID_SOCKET;
+
+/*----------------------------------------------------------------------------*/
+static void wbuf_reserve(wbuf_t *b, size_t extra)
+{
+    if (b->n + extra <= b->cap)
+    {
+        return;
+    }
+    size_t cap = (b->cap != 0u) ? b->cap : 256u;
+    while (cap < b->n + extra)
+    {
+        cap *= 2u;
+    }
+    uint8_t *p = realloc(b->p, cap);
+    if (p == NULL)
+    {
+        abort();
+    }
+    b->p = p;
+    b->cap = cap;
+}
+
+void wbuf_reset(wbuf_t *b) { b->n = 0; }
+
+void wbuf_u8(wbuf_t *b, uint8_t v)
+{
+    wbuf_reserve(b, 1);
+    b->p[b->n++] = v;
+}
+
+void wbuf_u16(wbuf_t *b, uint16_t v)
+{
+    wbuf_u8(b, (uint8_t)v);
+    wbuf_u8(b, (uint8_t)(v >> 8));
+}
+
+void wbuf_u32(wbuf_t *b, uint32_t v)
+{
+    wbuf_u16(b, (uint16_t)v);
+    wbuf_u16(b, (uint16_t)(v >> 16));
+}
+
+void wbuf_u64(wbuf_t *b, uint64_t v)
+{
+    wbuf_u32(b, (uint32_t)v);
+    wbuf_u32(b, (uint32_t)(v >> 32));
+}
+
+void wbuf_bytes(wbuf_t *b, const void *data, size_t n)
+{
+    wbuf_reserve(b, n);
+    if (n != 0u)
+    {
+        memcpy(&b->p[b->n], data, n);
+    }
+    b->n += n;
+}
+
+void wbuf_str(wbuf_t *b, const char *s)
+{
+    size_t n = strlen(s);
+    if (n > 0xFFFFu)
+    {
+        n = 0xFFFFu;
+    }
+    wbuf_u16(b, (uint16_t)n);
+    wbuf_bytes(b, s, n);
+}
+
+/*----------------------------------------------------------------------------*/
+const uint8_t *rbuf_bytes(rbuf_t *r, size_t n)
+{
+    if (r->error || (r->pos + n > r->n))
+    {
+        r->error = 1;
+        return NULL;
+    }
+    const uint8_t *p = &r->p[r->pos];
+    r->pos += n;
+    return p;
+}
+
+uint8_t rbuf_u8(rbuf_t *r)
+{
+    const uint8_t *p = rbuf_bytes(r, 1);
+    return (p != NULL) ? p[0] : 0u;
+}
+
+uint16_t rbuf_u16(rbuf_t *r)
+{
+    uint16_t lo = rbuf_u8(r);
+    return (uint16_t)(lo | ((uint16_t)rbuf_u8(r) << 8));
+}
+
+uint32_t rbuf_u32(rbuf_t *r)
+{
+    uint32_t lo = rbuf_u16(r);
+    return lo | ((uint32_t)rbuf_u16(r) << 16);
+}
+
+uint64_t rbuf_u64(rbuf_t *r)
+{
+    uint64_t lo = rbuf_u32(r);
+    return lo | ((uint64_t)rbuf_u32(r) << 32);
+}
+
+size_t rbuf_str(rbuf_t *r, char *out, size_t max)
+{
+    size_t n = rbuf_u16(r);
+    const uint8_t *p = rbuf_bytes(r, n);
+    size_t copy = 0;
+    if ((p != NULL) && (max != 0u))
+    {
+        copy = (n < max - 1u) ? n : max - 1u;
+        memcpy(out, p, copy);
+    }
+    if (max != 0u)
+    {
+        out[copy] = '\0';
+    }
+    return copy;
+}
+
+/*----------------------------------------------------------------------------*/
+int wire_connect(const char *host, uint16_t port, uint32_t timeout_ms)
+{
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+    {
+        return -1;
+    }
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1)
+    {
+        return -1;
+    }
+
+    /* the host may start listening after the runner (launch from a debugger) */
+    DWORD start = GetTickCount();
+    for (;;)
+    {
+        s_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (s_sock == INVALID_SOCKET)
+        {
+            return -1;
+        }
+        if (connect(s_sock, (struct sockaddr *)&addr, sizeof(addr)) == 0)
+        {
+            break;
+        }
+        closesocket(s_sock);
+        s_sock = INVALID_SOCKET;
+        if ((timeout_ms != 0u) && ((GetTickCount() - start) > timeout_ms))
+        {
+            return -1;
+        }
+        Sleep(100);
+    }
+    BOOL nodelay = TRUE;
+    setsockopt(s_sock, IPPROTO_TCP, TCP_NODELAY, (const char *)&nodelay, sizeof(nodelay));
+    return 0;
+}
+
+static int send_all(const uint8_t *p, size_t n)
+{
+    while (n != 0u)
+    {
+        int chunk = (n > 0x10000u) ? 0x10000 : (int)n;
+        int sent = send(s_sock, (const char *)p, chunk, 0);
+        if (sent <= 0)
+        {
+            return -1;
+        }
+        p += sent;
+        n -= (size_t)sent;
+    }
+    return 0;
+}
+
+static int recv_all(uint8_t *p, size_t n)
+{
+    while (n != 0u)
+    {
+        int chunk = (n > 0x10000u) ? 0x10000 : (int)n;
+        int got = recv(s_sock, (char *)p, chunk, 0);
+        if (got <= 0)
+        {
+            return -1;
+        }
+        p += got;
+        n -= (size_t)got;
+    }
+    return 0;
+}
+
+int wire_send(uint8_t type, const wbuf_t *payload)
+{
+    uint32_t len = (uint32_t)payload->n + 1u;
+    uint8_t hdr[5] = {(uint8_t)len, (uint8_t)(len >> 8), (uint8_t)(len >> 16), (uint8_t)(len >> 24), type};
+    if (send_all(hdr, sizeof(hdr)) != 0)
+    {
+        return -1;
+    }
+    return send_all(payload->p, payload->n);
+}
+
+int wire_recv(uint8_t *type, wbuf_t *payload)
+{
+    uint8_t hdr[5];
+    if (recv_all(hdr, sizeof(hdr)) != 0)
+    {
+        return -1;
+    }
+    uint32_t len = (uint32_t)hdr[0] | ((uint32_t)hdr[1] << 8) | ((uint32_t)hdr[2] << 16) | ((uint32_t)hdr[3] << 24);
+    if (len == 0u)
+    {
+        return -1;
+    }
+    *type = hdr[4];
+    wbuf_reset(payload);
+    wbuf_reserve(payload, len - 1u);
+    if (recv_all(payload->p, len - 1u) != 0)
+    {
+        return -1;
+    }
+    payload->n = len - 1u;
+    return 0;
+}
+
+void wire_close(void)
+{
+    if (s_sock != INVALID_SOCKET)
+    {
+        closesocket(s_sock);
+        s_sock = INVALID_SOCKET;
+    }
+    WSACleanup();
+}

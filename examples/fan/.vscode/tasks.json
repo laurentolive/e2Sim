@@ -1,0 +1,36 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build host32",
+            "type": "shell",
+            "command": "C:/Dev/Tools/make.exe TOOLCHAIN=host32",
+            "group": "build",
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "build host64",
+            "type": "shell",
+            "command": "C:/Dev/Tools/make.exe TOOLCHAIN=host64",
+            "group": "build",
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "e2sim connect",
+            "detail": "host waiting for the firmware launched by the debugger, real time",
+            "type": "shell",
+            "command": "python ../../e2sim_cli.py connect sim/hmi.board.yaml --port 47600 --power-on",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": { "regexp": "^x^" },
+                "background": { "activesBegin": "^e2sim: waiting", "endsPattern": "^e2sim: waiting" }
+            }
+        },
+        {
+            "label": "test",
+            "type": "shell",
+            "command": "C:/Dev/Tools/make.exe test",
+            "group": "test"
+        }
+    ]
+}

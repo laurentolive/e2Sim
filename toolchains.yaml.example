@@ -1,0 +1,25 @@
+# Toolchain registry shared by e2Sim and e2Unit (spec §10.1).
+# Copy to toolchains.yaml (not versioned), to ~/.esquaresoft/toolchains.yaml,
+# or point ESQ_TOOLCHAINS to it, and adapt the paths to the machine.
+python: C:/Dev/Tools/Python312/python.exe
+
+toolchains:
+  host64:                                   # PC 64 bits (MSYS2 UCRT64)
+    kind: host
+    arch: x86_64
+    prefix: C:/Dev/Tools/msys64/ucrt64/bin/
+    path: [C:/Dev/Tools/msys64/ucrt64/bin]
+  host32:                                   # PC 32 bits (MSYS2 MINGW32)
+    kind: host
+    arch: i686
+    prefix: C:/Dev/Tools/msys64/mingw32/bin/
+    path: [C:/Dev/Tools/msys64/mingw32/bin]
+    # python: C:/Dev/Tools/Python312-32/python.exe   # same arch as the chain, for e2Unit ctypes
+  arm-gcc9:
+    kind: arm
+    prefix: "C:/Dev/Tools/arm-none-eabi-gcc-9 2020-q2-update/bin/arm-none-eabi-"
+
+defaults:
+  e2sim: host32
+  eunit.host: host64
+  eunit.target: arm-gcc9

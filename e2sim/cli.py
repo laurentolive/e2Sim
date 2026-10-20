@@ -1,0 +1,116 @@
+"""e2sim command line: python e2sim_cli.py <command> ... (exit code 0 ok, 1 fail, 2 error)."""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import sys
+from pathlib import Path
+
+from . import toolchains
+
+
+def cmd_fs(args) -> int:
+    for p in map(Path, args.paths):
+        if args.op == "mkdir":
+            p.mkdir(parents=True, exist_ok=True)
+        elif p.is_dir():
+            shutil.rmtree(p)
+        elif p.exists():
+            p.unlink()
+    return 0
+
+
+def cmd_toolchain(args) -> int:
+    reg = toolchains.load(Path(args.registry) if args.registry else None)
+    if args.op == "list":
+        for name, tc in reg.toolchains.items():
+            default = [k for k, v in reg.defaults.items() if v == name]
+            print(f"{name:12} {tc.kind:5} {tc.arch:7} {tc.prefix}" + (f"  (default: {', '.join(default)})" if default else ""))
+        print(f"registry: {reg.file}")
+        return 0
+    tc = reg.get(args.name, tool=args.tool)
+    out = Path(args.dir) / f"toolchain-{tc.name}.mk"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    text = toolchains.make_fragment(tc, reg)
+    if not out.is_file() or out.read_text(encoding="utf-8") != text:
+        out.write_text(text, encoding="utf-8")
+    print(out.as_posix())
+    return 0
+
+
+def _run_args(p):
+    p.add_argument("board", help="board.yaml or system.yaml")
+    p.add_argument("--toolchain", help="toolchain of the build to run (default: registry default)")
+
+
+def cmd_run(args) -> int:
+    from .sim import Sim
+
+    with Sim(args.board, toolchain=args.toolchain, connect=args.connect) as sim:
+        if args.connect:
+            print(f"e2sim: waiting for the firmware on 127.0.0.1:{args.connect} ...", flush=True)
+        sim.start()
+        if args.power_on:
+            sim.power_on()
+        if args.duration is not None:
+            sim.run(s=args.duration)
+        else:
+            print("e2sim: running in real time, Ctrl+C to stop", flush=True)
+            try:
+                sim.run_realtime()
+            except KeyboardInterrupt:
+                pass
+        for name in args.snapshot or []:
+            port, _, file = name.partition("=")
+            sim[port].save_png(file or f"{port}.png")
+            print(f"e2sim: {port} -> {file or port + '.png'}")
+        print(f"e2sim: stopped at t = {sim.now:.6f} s")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="e2sim", description="e2Sim - firmware simulation on PC")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("fs", help="portable file operations for the makefiles")
+    p.add_argument("op", choices=["mkdir", "rm"])
+    p.add_argument("paths", nargs="+")
+    p.set_defaults(func=cmd_fs)
+
+    p = sub.add_parser("toolchain", help="toolchain registry")
+    p.add_argument("op", choices=["list", "mk"])
+    p.add_argument("name", nargs="?", help="toolchain name (mk; default: registry default of --tool)")
+    p.add_argument("--tool", default="e2sim")
+    p.add_argument("--dir", default="build", help="mk: output directory")
+    p.add_argument("--registry", help="toolchains.yaml (default: search, spec §10.1)")
+    p.set_defaults(func=cmd_toolchain)
+
+    p = sub.add_parser("run", help="run a simulation (headless: --duration)")
+    _run_args(p)
+    p.add_argument("--duration", type=float, help="virtual seconds to run in max speed, then stop")
+    p.add_argument("--snapshot", action="append", metavar="PORT[=file.png]", help="save a framebuffer at the end")
+    p.add_argument("--connect", type=int, metavar="PORT", help="do not launch the firmware: wait for it (debugger)")
+    p.add_argument("--power-on", action="store_true", help="power the firmware at start (power latch boards)")
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("connect", help="wait for a firmware launched from the debugger, run in real time")
+    _run_args(p)
+    p.add_argument("--port", type=int, default=47600)
+    p.add_argument("--power-on", action="store_true", help="power the firmware at start (power latch boards)")
+    p.set_defaults(func=lambda a: cmd_run(argparse.Namespace(board=a.board, toolchain=a.toolchain, duration=None,
+                                                              snapshot=None, connect=a.port, power_on=a.power_on)))
+
+    args = ap.parse_args(argv)
+    try:
+        return args.func(args)
+    except toolchains.ToolchainError as e:
+        print(f"e2sim: {e}", file=sys.stderr)
+        return 2
+    except Exception as e:  # noqa: BLE001 - CLI boundary
+        from .sim import SimError
+
+        if isinstance(e, SimError):
+            print(f"e2sim: {e}", file=sys.stderr)
+            return 2
+        raise

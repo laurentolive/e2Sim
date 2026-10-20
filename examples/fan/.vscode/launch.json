@@ -1,0 +1,38 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "fan_hmi (host32)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/host32/e2sim_runner.exe",
+            "args": ["--dll", "${workspaceFolder}/build/host32/fan_hmi.dll", "--host", "127.0.0.1:47600", "--connect-timeout", "0"],
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "C:/Dev/Tools/msys64/mingw32/bin/gdb.exe",
+            "setupCommands": [{ "text": "set breakpoint pending on" }],
+            "preLaunchTask": "build host32"
+        },
+        {
+            "name": "fan_hmi (host64)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/host64/e2sim_runner.exe",
+            "args": ["--dll", "${workspaceFolder}/build/host64/fan_hmi.dll", "--host", "127.0.0.1:47600", "--connect-timeout", "0"],
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "C:/Dev/Tools/msys64/ucrt64/bin/gdb.exe",
+            "setupCommands": [{ "text": "set breakpoint pending on" }],
+            "preLaunchTask": "build host64"
+        },
+        {
+            "name": "attach to a runner (host32)",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "${workspaceFolder}/build/host32/e2sim_runner.exe",
+            "processId": "${command:pickProcess}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "C:/Dev/Tools/msys64/mingw32/bin/gdb.exe"
+        }
+    ]
+}

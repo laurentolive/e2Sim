@@ -1,16 +1,18 @@
-# e2Sim — Spécification v0.7
+# e2Sim — Spécification v0.8
 
 > Simulateur de firmware embarqué sur PC : le code applicatif tourne en natif au-dessus d'une HAL simulée,
 > cadencé par un temps virtuel déterministe, piloté par un humain, des scripts ou d'autres firmwares.
 
 Statut : **brouillon à consolider** — 2026-10-20
 Historique : v0.2 premières décisions (superloop, ports niveau HAL, GCC, eScope) ;
-v0.3 GUI web, entrée `main()`, lien eUnit, firmware exemple ;
-v0.4 axe temps eScope par index × période, registre de toolchains partagé avec eUnit, make ;
+v0.3 GUI web, entrée `main()`, lien e2Unit, firmware exemple ;
+v0.4 axe temps eScope par index × période, registre de toolchains partagé avec e2Unit, make ;
 v0.5 i686 et x86_64, alignement sur l'évolution « PC simulation » d'eScope ;
 v0.6 licence (§17) ;
 v0.7 reset et power dans le même process, transactions synchrones, index résolus par DWARF, accès mémoire
-par IPC, endpoint eScope dans le host, phasage ajusté, exemples tirés du seul firmware exemple
+par IPC, endpoint eScope dans le host, phasage ajusté, exemples tirés du seul firmware exemple ;
+v0.8 décisions d'implémentation V0 : firmware en DLL chargée par un runner générique (reset = rechargement de la
+DLL), durée de reset, verrou d'alimentation dans `board.yaml`, API `e2sim.h` alignée sur le code
 
 ---
 
@@ -41,9 +43,10 @@ Seule la couche la plus basse change : l'**adaptateur HAL** (§5.2) remplace l'i
 
 | Terme | Définition |
 |---|---|
-| **Firmware sim** | Exécutable PC (`fw_<produit>.exe`) = sources firmware + adaptateur HAL + `libe2sim-target` |
+| **Firmware sim** | DLL (`<produit>.dll`) = sources firmware + adaptateur HAL, chargée par le runner |
+| **Runner** | `e2sim_runner.exe`, générique (un par toolchain) : charge la DLL, l'exécute, dialogue avec le host |
 | **Adaptateur HAL** | Implémentation de la HAL du firmware au-dessus de l'API `e2sim.h`, à la place de l'implémentation MCU |
-| **libe2sim-target** | Bibliothèque C liée au firmware : fiber, temps virtuel, IRQ, ports, reset, accès mémoire, IPC |
+| **libe2sim-target** | `e2sim.h` + runner : fiber, temps virtuel, IRQ, ports, reset, accès mémoire, IPC. La DLL importe l'API depuis le runner |
 | **Host** | Process Python maître : temps global, modèles, scripts, GUI, endpoints eScope, liaisons inter-firmwares |
 | **Instance** | Un firmware simulé dans une session (un process) |
 | **Port** | Point d'échange nommé et typé entre firmware et host (§5) |
@@ -56,7 +59,7 @@ Seule la couche la plus basse change : l'**adaptateur HAL** (§5.2) remplace l'i
 ## 3. Architecture
 
 ```
- ┌─────────────── fw_<produit>.exe  (1 process par instance, i686 ou x86_64) ───────────────┐
+ ┌──── e2sim_runner.exe + <produit>.dll  (1 process par instance, i686 ou x86_64) ─────────┐
  │  Code applicatif inchangé                                                                │
  │  main() d'origine (renommé e2sim_app_main, superloop inchangée) dans une FIBER           │
  │  ───────────────────────────── HAL du firmware (en-têtes inchangés) ──────────────       │
@@ -132,20 +135,29 @@ Seule la couche la plus basse change : l'**adaptateur HAL** (§5.2) remplace l'i
 ### 4.4 Reset, alimentation, watchdog : dans le même process
 Le process d'une instance vit **toute la session** : le debugger reste attaché à travers les resets.
 
+- Le firmware est compilé en **DLL** ; le process est le **runner** générique, qui la charge.
 - **Reset** (appel HAL de reset, timeout watchdog, commande host) :
-  1. la fiber applicative est abandonnée et détruite ; timers, ISR enregistrées et transactions en cours sont annulés ;
-  2. **`.data` est restaurée** depuis une copie faite au premier démarrage, **`.bss` est remise à zéro**
-     (bornes `__data_start__/__data_end__`, `__bss_start__/__bss_end__` du linker MinGW) ;
-  3. les ports `out` reprennent leur valeur par défaut, le host reçoit un événement `RESET` (cause : soft, WDT, host) ;
-  4. une nouvelle fiber rappelle `e2sim_app_main()`.
-- L'état de `libe2sim-target` est placé dans une section dédiée (`.e2sim`), hors des plages réinitialisées.
+  1. la fiber applicative est détruite ; timers, ISR enregistrées et buffers de réception sont vidés ;
+  2. la DLL est **déchargée puis rechargée** (`FreeLibrary` / `LoadLibrary`) : `.data`, `.bss` et
+     l'initialisation CRT du firmware repartent exactement comme au boot, sans toucher à la CRT du process.
+     Avec une base d'image fixe, la DLL revient à la même adresse ; le debugger garde ses breakpoints
+     (breakpoints « pending » réinsérés au rechargement) ;
+  3. les ports `out` repassent à 0, le host reçoit un événement `RESET` (cause : power_on, soft, wdt, host) ;
+  4. le temps avance de la **durée de reset** (100 µs) : un reset maintenu actif ne boucle pas à temps nul ;
+  5. une nouvelle fiber rappelle `e2sim_app_main()`.
+- Un reset demandé depuis une ISR (watchdog) prend effet à la fin de l'ISR.
+- L'état du simulateur vit dans le runner, jamais réinitialisé.
 - Les **blocs NVM** survivent (fichiers mappés) ; la RAM repart comme au boot réel.
 - **Power off** (ex. sortie de maintien d'alimentation relâchée, commande host) : la fiber est arrêtée, les
   sorties passent à l'état « non alimenté », le temps virtuel continue pour le reste du système.
   **Power on** = reset avec la cause `POWER_ON`.
-- Limite : l'état interne de la libc (tas `malloc`, `stdio`) n'est pas réinitialisé. Un firmware qui
-  alloue dynamiquement au démarrage peut fuir à chaque reset ; option `reset: process` dans `board.yaml`
-  pour relancer le process à la place (debugger détaché ; défaut `reset: in_process`).
+- Limite : le tas `malloc` est celui du process (CRT système) : un firmware qui alloue au démarrage sans
+  libérer fuit à chaque reset. Option prévue `reset: process` dans `board.yaml` pour relancer le process à la
+  place (debugger détaché ; défaut `reset: in_process`, seul implémenté en V0).
+- **Verrou d'alimentation** (`power: { mode: latch, button: BTN_POWER, hold: SELF_HOLD, hold_ms: 10 }`) :
+  alimenté tant que la touche est appuyée ou que le firmware tient la sortie de maintien. Le verrou tient
+  `hold_ms` sans l'une ni l'autre, comme la capacité d'un vrai montage pendant un reset. Autres modes :
+  `auto` (alimenté au démarrage), `manual` (`sim.power_on()`).
 - Le watchdog est simulé en temps virtuel (désactivable pendant le debug).
 
 ---
@@ -181,14 +193,16 @@ Ex. : la lecture ADC de la HAL renvoie des points ADC → le port ADC transporte
 uint64_t e2sim_time_ns(void);
 void     e2sim_yield(void);                 /* appelé par chaque fonction de l'adaptateur HAL ; sans effet en ISR */
 void     e2sim_idle(void);                  /* WFI : saute au prochain événement ; sans effet en ISR              */
-void     e2sim_reset(e2sim_reset_cause_t c);/* reset MCU dans le process (ne retourne pas)                        */
+void     e2sim_reset(e2sim_reset_cause_t c);/* fiber : ne retourne pas ; ISR : reset à la fin de l'ISR             */
+e2sim_reset_cause_t e2sim_reset_cause(void); /* cause du dernier reset                                     */
 
 /* ports */
 int32_t  e2sim_in (e2sim_class_t c, uint16_t idx);
 void     e2sim_out(e2sim_class_t c, uint16_t idx, int32_t v);
-size_t   e2sim_stream_read (uint16_t idx, uint8_t *buf, size_t max);
+void     e2sim_event_out(uint16_t idx);
+size_t   e2sim_stream_read (uint16_t idx, uint8_t *buf, size_t max);  /* classe UART */
 void     e2sim_stream_write(uint16_t idx, const uint8_t *buf, size_t len);
-size_t   e2sim_xfer(uint16_t idx, const uint8_t *tx, size_t tx_len,
+size_t   e2sim_xfer(e2sim_class_t c, uint16_t idx, const uint8_t *tx, size_t tx_len,
                     uint8_t *rx, size_t rx_max);           /* synchrone, temps arrêté */
 void    *e2sim_block(uint16_t idx, size_t size);
 
@@ -227,22 +241,23 @@ Une seule source de vérité pour les ports, les modèles et la GUI. Exemple tir
 
 ```yaml
 name: fan_hmi
-firmware: build/host32/fan_hmi.exe   # point d'entrée : main() du firmware (§4.1)
+firmware: ../build/{toolchain}/fan_hmi.dll   # {toolchain} : toolchain choisie (§10.1) ; entrée : main()
 quantum_ms: 1
 cpu: { yield_cost_ns: 1000 }
 reset: in_process                     # défaut (§4.4) ; "process" relance le process à chaque reset
+power: { mode: latch, button: BTN_POWER, hold: SELF_HOLD }   # §4.4
 
 ports:
   BTN_POWER:  { class: GPIO,  idx: HAL_GPIO_BTN_POWER, type: bit,   dir: in, default: 0 }
   BTN_PLUS:   { class: GPIO,  idx: HAL_GPIO_BTN_PLUS,  type: bit,   dir: in, default: 0 }
   LED_STATUS: { class: GPIO,  idx: HAL_GPIO_LED,       type: bit,   dir: out }
-  SELF_HOLD:  { class: GPIO,  idx: HAL_GPIO_SELF_HOLD, type: bit,   dir: out, power_hold: true }
+  SELF_HOLD:  { class: GPIO,  idx: HAL_GPIO_SELF_HOLD, type: bit,   dir: out }
   VBAT_ADC:   { class: ADC,   idx: HAL_ADC_VBAT,       type: value, dir: in }
-  TEMP_SPI:   { class: SPI,   idx: HAL_SPI_SENSOR,     type: xfer }
+  TEMP_SPI:   { class: SPI,   idx: HAL_SPI_SENSOR,     type: xfer, cost_ns: 30000 }
   UART_LINK:  { class: UART,  idx: HAL_UART_LINK,      type: stream }
   UART_DEBUG: { class: UART,  idx: HAL_UART_DEBUG,     type: stream, tcp: 47710 }
-  LCD:        { class: BLOCK, idx: HAL_BLOCK_LCD,      type: block, framebuffer: { w: 128, h: 64, format: RGB565 } }
-  EEPROM:     { class: BLOCK, idx: HAL_BLOCK_EEPROM,   type: block, size: 2048, persist: true }
+  LCD:        { class: BLOCK, idx: HALSIM_BLOCK_LCD,   type: block, framebuffer: { w: 128, h: 64, format: RGB565 } }
+  EEPROM:     { class: BLOCK, idx: HALSIM_BLOCK_NVM,   type: block, size: 2048, persist: true }   # enum de l'adaptateur
 
 models:
   - { class: models.battery.Battery,        ports: { adc: VBAT_ADC } }
@@ -414,8 +429,8 @@ TCP. e2Sim s'appuie sur l'évolution « PC simulation » d'eScope (adresses 64 b
 
 ## 10. Chaînes de compilation et debug
 
-### 10.1 Registre de toolchains partagé eUnit / e2Sim
-eUnit et e2Sim utilisent **les mêmes chaînes de compilation**, déclarées **une seule fois par machine**
+### 10.1 Registre de toolchains partagé e2Unit / e2Sim
+e2Unit et e2Sim utilisent **les mêmes chaînes de compilation**, déclarées **une seule fois par machine**
 dans un fichier commun `toolchains.yaml`. Le format du fichier est le contrat entre les deux outils :
 chacun le lit avec son propre petit lecteur, sans dépendance de code entre les dépôts.
 
@@ -434,7 +449,7 @@ toolchains:
     arch: i686
     prefix: C:/Dev/Tools/msys64/mingw32/bin/
     path: [C:/Dev/Tools/msys64/mingw32/bin]
-    python: C:/Dev/Tools/Python312-32/python.exe     # facultatif : Python de même archi (ctypes eUnit)
+    python: C:/Dev/Tools/Python312-32/python.exe     # facultatif : Python de même archi (ctypes e2Unit)
   arm-gcc9:
     kind: arm
     prefix: "C:/Dev/Tools/arm-none-eabi-gcc-9 2020-q2-update/bin/arm-none-eabi-"
@@ -451,26 +466,26 @@ defaults:                                  # choix par défaut de chaque outil
 
 **Choix d'une toolchain**, du plus prioritaire au moins prioritaire :
 1. ligne de commande : `make TOOLCHAIN=host64` ou `e2sim build --toolchain host64` ;
-2. projet : clé `toolchain:` dans `board.yaml` (e2Sim) ou dans la suite YAML (eUnit) ;
+2. projet : clé `toolchain:` dans `board.yaml` (e2Sim) ou dans la suite YAML (e2Unit) ;
 3. `defaults` du registre.
 
-**Intégration au build** : les outils sont pilotés par **GNU make**, comme eUnit et les firmwares.
+**Intégration au build** : les outils sont pilotés par **GNU make**, comme e2Unit et les firmwares.
 Le registre est traduit en un fragment `toolchain.mk` (`CC`, `CXX`, `AR`, `OBJCOPY`, `GDB`, `PATH`,
 `ARCH_FLAGS`) inclus par les makefiles, et le chemin du gdb est reporté dans `.vscode/launch.json`.
 Les sorties sont séparées par toolchain (`build/<toolchain>/`).
 
-**Compatibilité eUnit** : `eunit.local.mk` (`HOST_CC`, `ARM_PREFIX`, `PY`) reste supporté. Quand le
+**Compatibilité e2Unit** : `eunit.local.mk` (`HOST_CC`, `ARM_PREFIX`, `PY`) reste supporté. Quand le
 registre existe, ces variables en sont dérivées ; une valeur posée à la main garde la priorité.
 
 ### 10.2 Architectures 32 et 64 bits : les deux sont supportées
-**Exigence** : e2Sim et eUnit fonctionnent **en i686 et en x86_64** ; l'architecture n'est qu'un choix de
+**Exigence** : e2Sim et e2Unit fonctionnent **en i686 et en x86_64** ; l'architecture n'est qu'un choix de
 toolchain dans le registre.
 
 | Composant | i686 (`host32`) | x86_64 (`host64`) |
 |---|---|---|
 | `libe2sim-target`, adaptateur, firmware | ✔ | ✔ |
 | Endpoint eScope | `AddressSize` 4 | `AddressSize` 8 (`ADDR64_FLAG`) |
-| eUnit `host` (ctypes) | avec un Python 32 bits | avec un Python 64 bits |
+| e2Unit `host` (ctypes) | avec un Python 32 bits | avec un Python 64 bits |
 | Debug VS Code | gdb `mingw32` | gdb `ucrt64` |
 
 - **Seule contrainte** : une bibliothèque chargée par ctypes doit avoir l'architecture de l'interpréteur
@@ -480,13 +495,13 @@ toolchain dans le registre.
 - **CI sur les deux architectures** : tout écart de résultat révèle un code non portable (pointeur stocké
   dans un entier 32 bits, hypothèse sur `sizeof(void*)`). Sous Windows (LLP64), `long` fait 4 octets
   dans les deux cas, comme sur ARM.
-- `libe2sim-target`, le code généré par eUnit et les adaptateurs compilent **sans warning dans les deux architectures**.
+- `libe2sim-target`, le code généré par e2Unit et les adaptateurs compilent **sans warning dans les deux architectures**.
 
 ### 10.3 Flags et debug
 | Élément | Choix |
 |---|---|
 | Flags de fidélité | `-funsigned-char` (char non signé comme sur ARM), `-fshort-enums` si la cible l'utilise, `-g -O0` |
-| Flags propres à e2Sim | `-Dmain=e2sim_app_main` (sources firmware), `-Wl,--image-base=<base>`, `-Wl,-Map` |
+| Flags propres à e2Sim | `-Dmain=e2sim_app_main`, `-shared -static`, `-Wl,--image-base=0x10000000 --disable-dynamicbase`, `-Wl,-Map` ; la DLL est liée à la bibliothèque d'import du runner |
 | Flags de diagnostic | warnings identiques à la cible + `-Wconversion` optionnel |
 | Debug | **VS Code** + extension C/C++ (gdb de la toolchain choisie) : configurations `launch` et `attach` |
 | IntelliSense | `compile_commands.json` généré par une cible make (`make compdb`) |
@@ -506,7 +521,7 @@ firmware**, à côté des implémentations MCU de la HAL. e2Sim fournit `libe2si
 **firmware exemple** (§16), dont l'adaptateur sert de modèle à recopier.
 
 1. Écrire l'adaptateur e2Sim de la HAL du projet — une fois par famille de HAL.
-2. Créer le makefile e2Sim du projet (sur le modèle d'eUnit) : sources du projet sans l'implémentation MCU
+2. Créer le makefile e2Sim du projet (sur le modèle d'e2Unit) : sources du projet sans l'implémentation MCU
    de la HAL ni le BSP, includes, defines, `include $(E2SIM_ROOT)/mk/e2sim.mk`.
 3. Écrire `board.yaml` : ports (index symboliques de la HAL), modèles, GUI.
 4. (Optionnel) Écrire les modèles Python nécessaires ; sinon les ports sont pilotés à la main ou par script.
@@ -546,21 +561,21 @@ bloc) et éventuels accès registres hors HAL, à signaler comme dette d'archite
 
 ---
 
-## 15. Positionnement avec eUnit
+## 15. Positionnement avec e2Unit
 
 | Niveau | Outil | Objet testé | Stimulation |
 |---|---|---|---|
-| Unitaire | **eUnit** | une fonction C | vecteurs de stimuli déclarés en YAML |
+| Unitaire | **e2Unit** | une fonction C | vecteurs de stimuli déclarés en YAML |
 | Système | **e2Sim** | le firmware complet, en temps virtuel | scénarios pytest, modèles, autres firmwares |
-| Cible | eUnit `jlink` / `emu`, banc | binaire ARM réel | sonde, banc |
+| Cible | e2Unit `jlink` / `emu`, banc | binaire ARM réel | sonde, banc |
 
 Règles de cohérence :
-- **Pas de recouvrement** : e2Sim ne teste pas des fonctions isolées, eUnit ne gère pas le temps ni les périphériques.
+- **Pas de recouvrement** : e2Sim ne teste pas des fonctions isolées, e2Unit ne gère pas le temps ni les périphériques.
 - **Mêmes conventions** : Python 3.10+, YAML, code retour 0/1/2 (PASS/FAIL/erreur), GNU make.
 - **Mêmes chaînes de compilation** : registre `toolchains.yaml` commun (§10.1).
 - **Même modèle de licence** : PolyForm Noncommercial pour l'outil, MIT pour ce qui part dans le firmware (§17).
 - **Même traçabilité** : un test e2Sim porte ses exigences (`@e2sim.requirement("FAN-HMI-03")`) ; les
-  rapports JUnit XML et Excel (exigence → test → verdict) **réutilisent le module `report` d'eUnit**,
+  rapports JUnit XML et Excel (exigence → test → verdict) **réutilisent le module `report` d'e2Unit**,
   pour obtenir une matrice unique sur les deux niveaux.
 
 ## 16. Firmware exemple : ventilateur connecté (`examples/fan`)
@@ -636,7 +651,7 @@ examples/fan/
 
 ## 17. Licence
 
-Même modèle qu'eUnit (et eScope) : l'outil PC est en **source disponible** sous
+Même modèle qu'e2Unit (et eScope) : l'outil PC est en **source disponible** sous
 [PolyForm Noncommercial 1.0.0](../LICENSE.md), et tout ce qui part dans un firmware est sous **MIT**.
 
 ### 17.1 Périmètre des licences
@@ -649,7 +664,7 @@ Même modèle qu'eUnit (et eScope) : l'outil PC est en **source disponible** sou
 Aucun code n'est généré dans le firmware (§6, O2).
 
 Chaque dossier sous MIT a son propre `LICENSE.md` (en-tête d'une ligne + texte MIT), comme `target/`,
-`boards/` et `examples/` dans eUnit. Le `LICENSE.md` racine commence par une note qui délimite les deux
+`boards/` et `examples/` dans e2Unit. Le `LICENSE.md` racine commence par une note qui délimite les deux
 périmètres et se termine par `Required Notice: Copyright Laurent Olive (https://github.com/laurentolive/e2Sim)`.
 
 ### 17.2 Types de licence
@@ -657,17 +672,17 @@ périmètres et se termine par `Required Notice: Copyright Laurent Olive (https:
 - **Démonstration** (gratuite, 1 mois, non renouvelable) : essai en entreprise ;
 - **Professionnelle** (abonnement annuel, Lemon Squeezy) : tout usage professionnel.
 
-**Produit Lemon Squeezy distinct** d'eUnit, dans le même store `esquaresoft` : une clé eUnit n'active pas
+**Produit Lemon Squeezy distinct** d'e2Unit, dans le même store `esquaresoft` : une clé e2Unit n'active pas
 e2Sim et inversement. Une offre groupée éventuelle se fera côté Lemon Squeezy, sans changer le code.
 
-### 17.3 Procédure (reprise d'eUnit)
+### 17.3 Procédure (reprise d'e2Unit)
 Le package `eunit/license/` est **recopié** dans `e2sim/license/` : pas de dépendance de code entre les
 dépôts, comme pour le registre de toolchains (§10.1). Seuls changent :
 - `product.py` : `PRODUCT_NAME = "e2Sim"`, `PRODUCT_ID` du produit e2Sim (`None` tant qu'il n'est pas en
   vente : aucune clé acceptée), liens d'achat et de portail client ;
 - les variables d'environnement, préfixées `E2SIM_` : `E2SIM_LICENSE_KEY`, `E2SIM_NO_DIALOG`, `E2SIM_NO_GUI` ;
 - le dossier des fichiers de licence : `%APPDATA%/e2Sim/` (un fichier par type, chiffré DPAPI pour
-  l'utilisateur), séparé de celui d'eUnit.
+  l'utilisateur), séparé de celui d'e2Unit.
 
 Le comportement est identique :
 - **Vérification au lancement** de `e2sim run` et de `e2sim connect`, et **une fois par session pytest**
@@ -720,7 +735,7 @@ d'expiration éventuel → *License Creation* → selon le choix *Notice* + *Per
 
 ### 17.5 Traçabilité
 La licence en cours apparaît dans la sortie console au lancement, dans les **rapports** (propriété
-`license` du JUnit XML, ligne « License » du rapport Excel, via le module `report` partagé avec eUnit, §15)
+`license` du JUnit XML, ligne « License » du rapport Excel, via le module `report` partagé avec e2Unit, §15)
 et dans le bandeau de la GUI.
 
 ## 18. Points ouverts
@@ -729,5 +744,5 @@ et dans le bandeau de la GUI.
    (adresses 64 bits) sur la branche du portage Linux, comme le note le design eScope.
 3. **eScope i686** : la variante x86 (map avec `_` de tête, GDB sur PE 32 bits) est à vérifier ; le
    firmware exemple servira de cas de test.
-4. **Produit Lemon Squeezy e2Sim** : à créer dans le store `esquaresoft` (prix, offre groupée avec eUnit ?),
+4. **Produit Lemon Squeezy e2Sim** : à créer dans le store `esquaresoft` (prix, offre groupée avec e2Unit ?),
    puis reporter son id dans `e2sim/license/product.py`.
