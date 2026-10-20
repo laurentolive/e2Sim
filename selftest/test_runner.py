@@ -60,3 +60,48 @@ def test_memory_access(inst):
     w = proto.Writer().u8(proto.REC_MEM_READ).u32(1).u64(8).u32(4)  # unmapped page
     d = inst.run(1_000_000, bytes(w.b))
     assert ("mem", 1, 1, b"") in d.records
+
+
+def test_hang_report(request):
+    """A loop without yield point: the runner reports the stack, the host names the functions."""
+    import time
+
+    from e2sim.symbols import Symbols
+
+    tc = request.config.getoption("--e2sim-toolchain")
+    b = HERE / "blink" / "build" / tc
+    i = Instance("blink", b / "blink.dll", b / "e2sim_runner.exe", timeout_s=10, hang_timeout_s=0.5)
+    i.start()
+    try:
+        i.run(0, bytes([proto.REC_POWER, 1]))
+        i.run(1_000_000, b"")
+        t0 = time.monotonic()
+        with pytest.raises(proto.HangError) as e:
+            i.run(2_000_000, gpio_in(4, 1))
+        assert time.monotonic() - t0 < 5
+    finally:
+        i.stop()
+    gdb = "C:/Dev/Tools/msys64/" + ("ucrt64" if tc == "host64" else "mingw32") + "/bin/gdb.exe"
+    frames = Symbols(b / "blink.dll", gdb).where(e.value.pcs)
+    assert frames[0].startswith("hang_here (blink.c:"), frames
+    assert any(f.startswith("e2sim_app_main (blink.c:") for f in frames), frames
+
+
+def test_hang_report_sim(request, tmp_path):
+    """Sim level: the hang is a SimError naming the functions of the loop."""
+    import e2sim
+
+    tc = request.config.getoption("--e2sim-toolchain")
+    sim = e2sim.Sim(HERE / "blink" / "blink.board.yaml", toolchain=tc, work_dir=tmp_path)
+    try:
+        sim.start()
+        for st in sim.instances:
+            st.inst.hang_timeout_s = 0.5  # next process: the current one keeps 3 s
+        sim.run(ms=5)
+        sim["HANG"].set(1)
+        with pytest.raises(e2sim.SimError) as e:
+            sim.run(ms=5)
+    finally:
+        sim.stop()
+    msg = str(e.value)
+    assert "no yield point" in msg and "#0 hang_here (blink.c:" in msg and "e2sim_app_main" in msg, msg

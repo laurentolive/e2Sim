@@ -55,6 +55,16 @@ CODES = {gdb.TYPE_CODE_INT: "int", gdb.TYPE_CODE_CHAR: "int", gdb.TYPE_CODE_BOOL
 out = {}
 for kind, expr in REQ:
     try:
+        if kind == "where":
+            pc = int(expr, 0)
+            sal = gdb.find_pc_line(pc)
+            try:
+                fn = gdb.block_for_pc(pc).function
+            except RuntimeError:
+                fn = None
+            loc = f"{os.path.basename(sal.symtab.filename)}:{sal.line}" if sal.symtab else "?"
+            out[expr] = {"where": f"{fn.name if fn else '??'} ({loc})"}
+            continue
         if kind == "const":
             try:
                 out[expr] = {"value": int(gdb.parse_and_eval(expr))}
@@ -124,6 +134,11 @@ class Symbols:
         if "error" in a:
             raise SymbolError(f"{self.dll.name}: '{expr}': {a['error']}")
         return VarInfo(expr=expr, addr=a["addr"], size=a["size"], kind=a["kind"], signed=a["signed"], type=a["type"])
+
+    def where(self, addrs: list[int]) -> list[str]:
+        """'function (file:line)' of link addresses (stack of a hang)."""
+        res = self._query([("where", hex(a)) for a in addrs])
+        return [res[hex(a)].get("where", res[hex(a)].get("error", "?")) for a in addrs]
 
     def prefetch(self, exprs: list[str]):
         self._query([("var", e) for e in exprs])

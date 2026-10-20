@@ -16,7 +16,8 @@ XferHandler = Callable[[int, int, int, bytes], "tuple[bytes, int]"]
 class Instance:
     def __init__(self, name: str, dll: Path, runner: Path, *, yield_cost_ns: int = 1000,
                  blocks_cfg: list[tuple[int, int, str]] | None = None, timeout_s: float = 10.0,
-                 connect_port: int | None = None, log_dir: Path | None = None, reset_process: bool = False):
+                 connect_port: int | None = None, log_dir: Path | None = None, reset_process: bool = False,
+                 hang_timeout_s: float = 3.0):
         self.name = name
         self.dll = Path(dll)
         self.runner = Path(runner)
@@ -26,6 +27,7 @@ class Instance:
         self.connect_port = connect_port
         self.log_dir = log_dir
         self.reset_process = reset_process
+        self.hang_timeout_s = hang_timeout_s
         self.restarts = 0
         self.proc: subprocess.Popen | None = None
         self.link: proto.Link | None = None
@@ -54,7 +56,8 @@ class Instance:
                 self.log_dir.mkdir(parents=True, exist_ok=True)
                 out = open(self.log_dir / f"{self.name}.stdout.log", "ab" if self.restarts else "wb")  # noqa: SIM115 - owned by the process
             self.proc = subprocess.Popen(
-                [str(self.runner), "--dll", str(self.dll), "--host", f"127.0.0.1:{port}"],
+                [str(self.runner), "--dll", str(self.dll), "--host", f"127.0.0.1:{port}",
+                 "--hang-timeout", str(round(self.hang_timeout_s * 1000))],
                 stdout=out, stderr=subprocess.STDOUT if out else None)
             srv.settimeout(self.timeout_s)
         else:
@@ -118,6 +121,11 @@ class Instance:
                     if rec[0] == "reset":
                         self.module_base = rec[3]
                 return done
+            if t == proto.MSG_HANG:
+                ts, n = r.u64(), r.u8()
+                pcs = [self.unrelocate(r.u64()) for _ in range(n)]
+                raise proto.HangError(f"{self.name}: no yield point for {self.hang_timeout_s:g} s at "
+                                      f"t = {ts / 1e9:.6f} s: firmware loop without HAL call", ts, pcs)
             if t == proto.MSG_XFER_REQ:
                 cls, idx, ts, tx = r.u8(), r.u16(), r.u64(), r.data()
                 if xfer_replies is not None:
@@ -132,6 +140,10 @@ class Instance:
                 self.link.send(proto.MSG_XFER_REPLY, reply)
             else:
                 raise proto.LinkError(f"{self.name}: unexpected message 0x{t:02x}")
+
+    def unrelocate(self, addr: int) -> int:
+        """Address in the process -> link address (symbols)."""
+        return addr - self.module_base + self.pe.image_base
 
     def relocate(self, link_addr: int) -> int:
         """Link address (symbols) -> address in the process."""

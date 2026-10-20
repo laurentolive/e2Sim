@@ -139,8 +139,12 @@ Seule la couche la plus basse change : l'**adaptateur HAL** (§5.2) remplace l'i
   condition peut dépendre de variables qui changent sans sortie.
 - **Modes** : `max` (aussi vite que possible : CI, endurance), `realtime ×k` (humain),
   `step` (pas à pas en quantums), `pause`.
-- **Détection de blocage** : pas de yield pendant N s d'horloge murale (hors debugger attaché)
-  → diagnostic « boucle sans yield point » avec la pile de la fiber.
+- **Détection de blocage** : un thread du runner surveille la progression du RUN en cours ; sans aucun yield
+  pendant 3 s d'horloge murale (`Instance(hang_timeout_s=…)`, runner `--hang-timeout`, 0 : désactivé) et sans
+  debugger attaché (`IsDebuggerPresent`), il suspend le firmware, remonte sa pile (frame pointers en i686,
+  tables de déroulage du PE en x86_64), l'envoie au host (`MSG_HANG`) et se termine. Le host lève une
+  `SimError` « no yield point » avec la pile en `fonction (fichier:ligne)` (gdb). Le temps où le host répond
+  à une transaction n'est pas compté.
 
 ### 4.4 Reset, alimentation, watchdog : dans le même process
 Le process d'une instance vit **toute la session** : le debugger reste attaché à travers les resets.
@@ -659,6 +663,7 @@ une fonctionnalité visible a aussi un chapitre de démo. Une nouvelle fonctionn
 | Forçage d'une entrée pilotée par un modèle (`force` / `release`) | `VBAT_ADC` forcé à 0 | T16 | 6 |
 | Débit d'une ligne série (`baud:`) | `UART_DEBUG` à 9600, liaison moteur saturée à 300 | T18 | — |
 | Index de `board.yaml` par enum ou `#define` (DWARF, `-g3`) | `UART_DEBUG` = `HAL_UART_TERMINAL` | T19 | — |
+| Diagnostic « boucle sans yield point » avec la pile | firmware de selftest (`hang_here`) : bug volontaire hors de l'exemple | selftest | — |
 | Record / replay, sur l'autre architecture | enregistrement d'un scénario, rejoué | T12 | 11 |
 | `sim.var()` / `set_var()` | variables des deux firmwares | tous | 3, 9 |
 | Endpoint eScope intégré au host | `fan_hmi` sans code eScope | T14 | 3 |

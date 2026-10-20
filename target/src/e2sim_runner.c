@@ -33,6 +33,7 @@
 #define SAMPLE_BYTES    1024u
 #define FIBER_STACK     (1u << 20)
 #define RESET_TIME_NS   100000u /* reset + boot: a reset held active cannot loop at zero time */
+#define HANG_FRAMES     16u
 
 typedef int (*app_main_t)(void);
 
@@ -133,6 +134,13 @@ static struct
     wbuf_t tx;    /* scratch for other messages */
     wbuf_t rx;    /* last received message */
 } g = {.reset_pending = -1};
+
+/* hang monitor: progress of the RUN being served, watched by a thread (wall clock) */
+static volatile LONG s_progress;
+static volatile LONG s_in_run;
+static HANDLE s_main_thread;
+static DWORD s_hang_ms = 3000;
+static bool mem_valid(uintptr_t addr, size_t size, bool write);
 
 static void fatal(const char *fmt, ...)
 {
@@ -576,6 +584,7 @@ E2SIM_API uint64_t e2sim_time_ns(void) { return g.now; }
 
 E2SIM_API void e2sim_yield(void)
 {
+    s_progress++;
     if (!g.in_fiber)
     {
         return;
@@ -589,6 +598,7 @@ E2SIM_API void e2sim_yield(void)
 
 E2SIM_API void e2sim_idle(void)
 {
+    s_progress++;
     if (!g.in_fiber)
     {
         return;
@@ -683,6 +693,7 @@ E2SIM_API size_t e2sim_xfer(e2sim_class_t c, uint16_t idx, const uint8_t *tx, si
     wbuf_u64(&g.tx, g.now);
     wbuf_u16(&g.tx, (uint16_t)tx_len);
     wbuf_bytes(&g.tx, tx, tx_len);
+    s_in_run = 0; /* the host answers: its time is not a hang of the firmware */
     if (wire_send(MSG_XFER_REQ, &g.tx) != 0)
     {
         fatal("host link lost");
@@ -692,6 +703,8 @@ E2SIM_API size_t e2sim_xfer(e2sim_class_t c, uint16_t idx, const uint8_t *tx, si
     {
         fatal("host link lost (xfer)");
     }
+    s_progress++;
+    s_in_run = 1;
     rbuf_t r = {g.rx.p, g.rx.n, 0, 0};
     uint64_t cost = rbuf_u64(&r);
     size_t n = rbuf_u16(&r);
@@ -1091,6 +1104,95 @@ static void handle_config(void)
 }
 
 /*============================================================================*/
+/* hang monitor: a RUN without any yield point for s_hang_ms of wall clock (and no debugger attached) is a
+   loop of the firmware that never calls the HAL. Its stack is sent to the host (frame pointers: -O0), then
+   the process ends. */
+static DWORD WINAPI hang_monitor(void *arg)
+{
+    (void)arg;
+    LONG last = -1;
+    DWORD since = GetTickCount();
+    for (;;)
+    {
+        Sleep(100);
+        LONG p = s_progress;
+        if (!s_in_run || (p != last) || IsDebuggerPresent())
+        {
+            last = p;
+            since = GetTickCount();
+            continue;
+        }
+        if (GetTickCount() - since < s_hang_ms)
+        {
+            continue;
+        }
+        SuspendThread(s_main_thread);
+        CONTEXT ctx __attribute__((aligned(16)));
+        memset(&ctx, 0, sizeof(ctx));
+        ctx.ContextFlags = CONTEXT_FULL;
+        uint64_t pcs[HANG_FRAMES];
+        unsigned n = 0;
+        if (GetThreadContext(s_main_thread, &ctx))
+        {
+#if defined(__x86_64__)
+            /* x64: unwind tables of the PE (the frame pointer chain is not reliable) */
+            while ((n < HANG_FRAMES) && (ctx.Rip != 0u))
+            {
+                pcs[n] = (n == 0u) ? ctx.Rip : ctx.Rip - 1u; /* return address: inside the call */
+                n++;
+                DWORD64 base;
+                PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &base, NULL);
+                if (fn == NULL)
+                {
+                    if (!mem_valid((uintptr_t)ctx.Rsp, 8u, false))
+                    {
+                        break;
+                    }
+                    ctx.Rip = *(DWORD64 *)ctx.Rsp; /* leaf function */
+                    ctx.Rsp += 8u;
+                }
+                else
+                {
+                    PVOID handler;
+                    DWORD64 frame;
+                    RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, ctx.Rip, fn, &ctx, &handler, &frame, NULL);
+                }
+            }
+#else
+            uintptr_t fp = (uintptr_t)ctx.Ebp;
+            pcs[n++] = (uintptr_t)ctx.Eip;
+            while ((n < HANG_FRAMES) && (fp != 0u) && mem_valid(fp, 2u * sizeof(void *), false))
+            {
+                uintptr_t ret = ((uintptr_t *)fp)[1];
+                uintptr_t next = ((uintptr_t *)fp)[0];
+                if (ret == 0u)
+                {
+                    break;
+                }
+                pcs[n++] = ret - 1u; /* inside the call instruction */
+                if (next <= fp)
+                {
+                    break;
+                }
+                fp = next;
+            }
+#endif
+        }
+        wbuf_t msg = {0};
+        wbuf_u64(&msg, g.now);
+        wbuf_u8(&msg, (uint8_t)n);
+        for (unsigned i = 0; i < n; i++)
+        {
+            wbuf_u64(&msg, pcs[i]);
+        }
+        wire_send(MSG_HANG, &msg);
+        fprintf(stderr, "e2sim_runner: no yield point for %lu ms: firmware loop without HAL call\n",
+                (unsigned long)s_hang_ms);
+        ExitProcess(3);
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *host = "127.0.0.1:47600";
@@ -1109,6 +1211,10 @@ int main(int argc, char **argv)
         else if ((strcmp(argv[i], "--connect-timeout") == 0) && (i + 1 < argc))
         {
             timeout_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
+        }
+        else if ((strcmp(argv[i], "--hang-timeout") == 0) && (i + 1 < argc))
+        {
+            s_hang_ms = (DWORD)strtoul(argv[++i], NULL, 0); /* 0: no hang detection */
         }
         else
         {
@@ -1137,6 +1243,12 @@ int main(int argc, char **argv)
     }
 
     g.yield_cost = 1000;
+    DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &s_main_thread, 0, FALSE,
+                    DUPLICATE_SAME_ACCESS);
+    if (s_hang_ms != 0u)
+    {
+        CreateThread(NULL, 0, hang_monitor, NULL, 0, NULL);
+    }
     g.sched_fiber = ConvertThreadToFiber(NULL);
     if (g.sched_fiber == NULL)
     {
@@ -1172,7 +1284,10 @@ int main(int argc, char **argv)
         }
         else if (type == MSG_RUN)
         {
+            s_progress++;
+            s_in_run = 1;
             handle_run();
+            s_in_run = 0;
             if (g.exiting)
             {
                 break; /* reset_process: the host starts a new process */

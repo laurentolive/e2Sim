@@ -9,6 +9,17 @@ uint32_t loops;
 int32_t initialized = 1234;     /* .data: restored at reset */
 uint32_t boots;                 /* .bss: cleared at reset */
 
+volatile uint32_t spin;
+
+/* bug on purpose: busy loop without any HAL call (no yield point), found by the hang monitor */
+static void __attribute__((noinline)) hang_here(void)
+{
+    for (;;)
+    {
+        spin++;
+    }
+}
+
 static void tick(void *ctx)
 {
     (void)ctx;
@@ -34,6 +45,10 @@ int main(void)
             uint8_t tx[2] = {0x55, 0xAA}, rx[2] = {0};
             e2sim_xfer(E2SIM_SPI, 0, tx, 2, rx, 2);
             e2sim_out(E2SIM_VALUE, 0, rx[0] | (rx[1] << 8));
+        }
+        if (e2sim_in(E2SIM_GPIO, 4) != 0)
+        {
+            hang_here();
         }
         if (e2sim_in(E2SIM_GPIO, 3) != 0)
         {

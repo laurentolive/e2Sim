@@ -16,6 +16,7 @@
 #define MSG_HELLO     0x01 /* u32 version, u8 ptr_size, u64 module_base, u32 pid, str dll */
 #define MSG_DONE      0x02 /* u64 now, u64 end (boundary reached), u8 powered, u8 halted, u8 exiting, records..., REC_END */
 #define MSG_XFER_REQ  0x03 /* u8 cls, u16 idx, u64 t, u16 n, bytes */
+#define MSG_HANG      0x04 /* u64 t, u8 n, u64 pc[n]: no yield point for too long (stack of the firmware) */
 
 /* host -> runner */
 #define MSG_CONFIG     0x81 /* u64 yield_cost_ns, u16 nblocks, {u16 idx, u8 fill, str path}...,

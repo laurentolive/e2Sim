@@ -262,7 +262,10 @@ class InstanceState:
     def exchange(self, until_ns: int, extra: bytes = b"", quantum_ns: int = 0) -> int:
         """Returns the boundary reached (< until_ns: a long run stopped on an output)."""
         self.sim._run_from = self.sim.now_ns
-        done = self.inst.run(until_ns, self.records() + extra, self.sim.now_ns, quantum_ns)
+        try:
+            done = self.inst.run(until_ns, self.records() + extra, self.sim.now_ns, quantum_ns)
+        except proto.HangError as e:
+            raise SimError(self.hang_report(e)) from None
         self.apply(done)
         return done.end if quantum_ns else until_ns
 
@@ -341,6 +344,16 @@ class InstanceState:
         if was_powered != self.powered and not self.sim.replaying:
             for m in self.models:
                 m.on_power(self.powered)
+
+    def hang_report(self, e: proto.HangError) -> str:
+        """Message of a firmware loop without yield point, with its stack."""
+        try:
+            frames = self.symbols.where(e.pcs)
+        except Exception:  # noqa: BLE001 - the report must not hide the hang
+            frames = [hex(a) for a in e.pcs]
+        lines = [f"  #{i} {f}" for i, f in enumerate(frames)]
+        return (f"{e}\n" + "\n".join(lines) +
+                "\n  a busy loop must call the HAL (yield point) or E2SIM_YIELD() (spec §4.1)")
 
     def _deliver_rx(self, p: Port, data: bytes):
         """Bytes written by the firmware reach the host side: buffer, models, linked instances, TCP relay."""

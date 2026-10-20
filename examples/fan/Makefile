@@ -33,7 +33,9 @@ demo: all
 demo-check: all
 	@"$(E2SIM_PY)" demo/demo.py --check --toolchain $(E2SIM_TC)
 
-test-all:
+test-all:  # both builds first: some tests replay a record on the other architecture
+	@$(MAKE) --no-print-directory all TOOLCHAIN=host32
+	@$(MAKE) --no-print-directory all TOOLCHAIN=host64
 	@$(MAKE) --no-print-directory test TOOLCHAIN=host32
 	@$(MAKE) --no-print-directory test TOOLCHAIN=host64
 

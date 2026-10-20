@@ -11,6 +11,7 @@ WIRE_VERSION = 3
 MSG_HELLO = 0x01
 MSG_DONE = 0x02
 MSG_XFER_REQ = 0x03
+MSG_HANG = 0x04
 MSG_CONFIG = 0x81
 MSG_RUN = 0x82
 MSG_XFER_REPLY = 0x83
@@ -50,6 +51,15 @@ LOG_LEVELS = {0: "debug", 1: "info", 2: "warning", 3: "error"}
 
 class LinkError(Exception):
     pass
+
+
+class HangError(LinkError):
+    """The firmware looped without yield point; pcs: its stack (process addresses), t: virtual time."""
+
+    def __init__(self, msg: str, t: int, pcs: list[int]):
+        super().__init__(msg)
+        self.t = t
+        self.pcs = pcs
 
 
 class Writer:
