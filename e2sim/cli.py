@@ -96,6 +96,15 @@ def cmd_gui(args) -> int:
     return 0
 
 
+def cmd_replay(args) -> int:
+    from .sim import replay
+
+    sim, same = replay(args.record, toolchain=args.toolchain, connect=args.connect)
+    print(f"e2sim: replayed {args.record} up to t = {sim.now:.6f} s: "
+          + ("same outputs as recorded" if same else "OUTPUTS DIFFER from the record"))
+    return 0 if same else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="e2sim", description="e2Sim - firmware simulation on PC")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -127,6 +136,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--power-on", action="store_true", help="power the firmware at start (power latch boards)")
     p.add_argument("--no-browser", action="store_true")
     p.set_defaults(func=cmd_gui)
+
+    p = sub.add_parser("replay", help="send a record (.e2simrec) again, check the outputs are the same")
+    p.add_argument("record")
+    p.add_argument("--toolchain")
+    p.add_argument("--connect", type=int, metavar="PORT", help="wait for the runner launched by the debugger")
+    p.set_defaults(func=cmd_replay)
 
     p = sub.add_parser("connect", help="wait for a firmware launched from the debugger, run in real time")
     _run_args(p)

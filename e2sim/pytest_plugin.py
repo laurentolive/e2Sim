@@ -23,6 +23,8 @@ def pytest_addoption(parser):
     g = parser.getgroup("e2sim")
     g.addoption("--e2sim-toolchain", default=None, help="toolchain of the firmware build to simulate")
     g.addoption("--e2sim-update-refs", action="store_true", help="rewrite the reference images")
+    g.addoption("--e2sim-record", metavar="DIR", default=None,
+                help="record every test (DIR/<test>.e2simrec): replay with e2sim replay")
 
 
 def pytest_configure(config):
@@ -44,9 +46,15 @@ def e2sim_toolchain(request):
 
 
 @pytest.fixture
-def sim(e2sim_board, e2sim_toolchain, tmp_path):
+def sim(request, e2sim_board, e2sim_toolchain, tmp_path):
     """Started simulation of e2sim_board (a fixture of the conftest), fresh NVM in tmp_path."""
-    s = Sim(e2sim_board, toolchain=e2sim_toolchain, work_dir=tmp_path)
+    rec_dir = request.config.getoption("--e2sim-record")
+    rec = None
+    if rec_dir:
+        from pathlib import Path
+
+        rec = Path(rec_dir) / (request.node.name.replace("/", "_").replace("[", "_").replace("]", "") + ".e2simrec")
+    s = Sim(e2sim_board, toolchain=e2sim_toolchain, work_dir=tmp_path, record=rec)
     s.start()
     try:
         yield s

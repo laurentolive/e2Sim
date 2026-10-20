@@ -357,8 +357,12 @@ def test_motor_board_silent(sim):
 - La GUI est un client comme un autre : on peut lancer un script et suivre en GUI simultanément.
 
 ### 7.4 Record / replay
-- Le host enregistre toutes les entrées à chaque quantum, les réponses aux transactions et les écritures
-  mémoire (`.e2simrec`). Le déterminisme garantit un replay identique.
+- Le host enregistre tous les messages qu'il envoie aux runners (`RUN` avec leurs entrées, écritures mémoire
+  comprises ; réponses aux transactions ; écritures de blocs par le host) et le contenu initial des NVM
+  (`.e2simrec`). Le replay renvoie ces messages tels quels, **sans modèle ni script**, et compare l'empreinte
+  de la trace des sorties : `e2sim replay <fichier>` (code retour 0 si identique), `--connect` pour le rejouer
+  sous debugger, `pytest --e2sim-record DIR` pour enregistrer chaque test. Un enregistrement fait sur une
+  architecture se rejoue à l'identique sur l'autre (firmware portable).
 - **Snapshot « par replay »** : revenir à l'instant T = relancer et rejouer jusqu'à T (vite en mode `max`).
 
 ---

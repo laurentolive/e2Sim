@@ -32,6 +32,7 @@ class Instance:
         self.ptr_size = self.pe.ptr_size
         self.pid = 0
         self.xfer_handler: XferHandler | None = None
+        self.tap: Callable[[int, bytes], None] | None = None  # (kind, payload) of every message sent (record)
         self._mem_id = 0
 
     # ------------------------------------------------------------------
@@ -98,7 +99,13 @@ class Instance:
         """Inputs (records) applied, run until until_ns, outputs returned. quantum_ns != 0: quanta from from_ns,
         stop at the end of the first quantum with an output (Done.end)."""
         hdr = proto.Writer().u64(until_ns).u64(from_ns).u64(quantum_ns).b
-        self.link.send(proto.MSG_RUN, hdr + records + bytes([proto.REC_END]))
+        return self.run_payload(bytes(hdr + records + bytes([proto.REC_END])))
+
+    def run_payload(self, payload: bytes, xfer_replies: list[bytes] | None = None) -> proto.Done:
+        """Send a RUN payload as it is (replay: with the recorded transaction answers)."""
+        if self.tap is not None:
+            self.tap(1, payload)
+        self.link.send(proto.MSG_RUN, payload)
         while True:
             t, r = self.link.recv()
             if t == proto.MSG_DONE:
@@ -109,8 +116,16 @@ class Instance:
                 return done
             if t == proto.MSG_XFER_REQ:
                 cls, idx, ts, tx = r.u8(), r.u16(), r.u64(), r.data()
-                rx, cost = (b"", 0) if self.xfer_handler is None else self.xfer_handler(cls, idx, ts, tx)
-                self.link.send(proto.MSG_XFER_REPLY, bytes(proto.Writer().u64(cost).data(bytes(rx)).b))
+                if xfer_replies is not None:
+                    if not xfer_replies:
+                        raise proto.LinkError(f"{self.name}: replay: transaction not in the record (firmware changed ?)")
+                    reply = xfer_replies.pop(0)
+                else:
+                    rx, cost = (b"", 0) if self.xfer_handler is None else self.xfer_handler(cls, idx, ts, tx)
+                    reply = bytes(proto.Writer().u64(cost).data(bytes(rx)).b)
+                if self.tap is not None:
+                    self.tap(2, reply)
+                self.link.send(proto.MSG_XFER_REPLY, reply)
             else:
                 raise proto.LinkError(f"{self.name}: unexpected message 0x{t:02x}")
 

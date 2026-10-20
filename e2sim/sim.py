@@ -20,6 +20,7 @@ from .model import Model
 from .symbols import Symbols
 from .escope import EscopeEndpoint
 from .tcp import TcpServer
+from . import record as record_mod
 
 
 class SimError(Exception):
@@ -112,6 +113,10 @@ class Port:
     def write_block(self, offset: int, data: bytes):
         """Write in the block between two quanta (fault injection: corrupted NVM...)."""
         self._block()[offset:offset + len(data)] = data
+        rec = self._sim._recorder
+        if rec is not None:
+            rec.write(record_mod.KIND_BLOCK, self._sim.instances.index(self._inst),
+                      struct.pack("<HI", self.idx, offset) + bytes(data))
 
     def rgb(self) -> tuple[bytes, int, int]:
         fb = self.spec.framebuffer
@@ -269,7 +274,7 @@ class InstanceState:
                 self.resets.append((t, cause))
                 self.sim.trace.append((t, self.name, "RESET", cause))
                 self._outputs_cleared()
-                for m in self.models:
+                for m in self.models if not self.sim.replaying else []:
                     m.on_reset(cause)
             elif kind == "mem":
                 _, mid, status, data = rec
@@ -283,11 +288,13 @@ class InstanceState:
         if was_powered and not self.powered:
             self._outputs_cleared()
             self.sim.trace.append((done.now, self.name, "POWER", 0))
-        if was_powered != self.powered:
+        if was_powered != self.powered and not self.sim.replaying:
             for m in self.models:
                 m.on_power(self.powered)
 
     def _notify(self, p: Port, v):
+        if self.sim.replaying:  # replay: the recorded inputs only, no model
+            return
         for model, attr in p.listeners:
             fn = getattr(model, f"on_{attr}", None)
             if fn is None and p.type == "stream":
@@ -345,8 +352,8 @@ class InstanceState:
             self._latch_low_since = None
 
     def request_power(self, on: bool):
+        # powered changes with the answer of the runner (same host state in replay)
         self.control.append(bytes(proto.Writer().u8(proto.REC_POWER).u8(1 if on else 0).b))
-        self.powered = on  # host view, confirmed by the next DONE
 
     # -- API of one instance: sim.instance("motor")["PWM_MOTOR"], .var(), .model() ------------
     def __getitem__(self, name: str) -> Port:
@@ -397,7 +404,7 @@ class Sim:
     """One firmware (board.yaml). sim["PORT"], sim.var("expr"), sim.model("Name"), sim.run(s=1)."""
 
     def __init__(self, board: str | Path, *, toolchain: str | None = None, work_dir: str | Path | None = None,
-                 connect: int | None = None, timeout_s: float = 10.0):
+                 connect: int | None = None, timeout_s: float = 10.0, record: str | Path | None = None):
         self.system = board_mod.load_system(board)
         self.board = self.system.instances[0][1]
         self.toolchain_name = toolchain or os.environ.get("E2SIM_TOOLCHAIN") or self.board.toolchain
@@ -416,6 +423,9 @@ class Sim:
         self._deliveries: list[tuple[str, Port, Any]] = []
         self.toolchain: toolchains.Toolchain | None = None
         self.started = False
+        self.record_path = Path(record) if record else None
+        self._recorder: record_mod.Recorder | None = None
+        self.replaying = False
 
     # -- life cycle -------------------------------------------------------
     def __enter__(self):
@@ -467,7 +477,14 @@ class Sim:
                 raise SimError(f"{dll.name} is {st.inst.pe.arch}, toolchain {self.toolchain.name} is {self.toolchain.arch}")
             st.inst.xfer_handler = st.on_xfer
             self._load_models(st)
+            if self.record_path is not None and self._recorder is None:
+                self._recorder = self._start_record()
+            if self._recorder is not None:
+                st.inst.tap = (lambda i: (lambda kind, payload: self._recorder.write(kind, i, payload)))(
+                    self.instances.index(st))
             st.inst.start()
+            if self.replaying:
+                continue
             for p in st.ports.values():
                 if p.spec.tcp is not None:
                     p.relay = TcpServer(p.spec.tcp, f"{st.name}.{p.name}")
@@ -477,6 +494,8 @@ class Sim:
                 st.escope.addr_size = st.inst.ptr_size
         self._resolve_links()
         self.started = True
+        if self.replaying:
+            return
         for st in self.instances:
             for m in st.models:
                 m.setup()
@@ -526,7 +545,23 @@ class Sim:
                 self._periodic.append([period, period, fn])
             st.models.append(model)
 
+    def _start_record(self) -> record_mod.Recorder:
+        import base64
+
+        nvm = {}
+        for st in self.instances:
+            for spec in st.board.ports.values():
+                f = self.work_dir / f"{st.name}.{spec.name}.nvm.bin"
+                if spec.type == "block" and spec.persist and f.is_file():
+                    nvm[f.name] = base64.b64encode(f.read_bytes()).decode()
+        header = {"board": str(self.system.file), "toolchain": self.toolchain.name if self.toolchain else None,
+                  "instances": [st.name for st in self.instances], "quantum_ns": self.quantum_ns, "nvm": nvm}
+        return record_mod.Recorder(self.record_path, header)
+
     def stop(self):
+        if self._recorder is not None:
+            self._recorder.close({"digest": self.trace_digest(), "now_ns": self.now_ns})
+            self._recorder = None
         for st in self.instances:
             if st.escope is not None:
                 st.escope.close()
@@ -724,3 +759,49 @@ def _encode(info, value: Any) -> bytes:
     if len(data) != info.size:
         raise SimError(f"{info.expr}: {info.size} bytes expected")
     return data
+
+
+def replay(path: str | Path, *, toolchain: str | None = None, work_dir: str | Path | None = None,
+           connect: int | None = None) -> tuple[Sim, bool]:
+    """Send a record again to the firmware(s): returns the stopped Sim (trace, ports, resets) and whether its
+    trace is the recorded one. connect: wait for a runner launched by the debugger (one instance)."""
+    import base64
+    import tempfile
+
+    header, entries, footer = record_mod.read(path)
+    work = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="e2sim_replay_"))
+    work.mkdir(parents=True, exist_ok=True)
+    for name, data in header.get("nvm", {}).items():
+        (work / name).write_bytes(base64.b64decode(data))
+    sim = Sim(header["board"], toolchain=toolchain or header.get("toolchain"), work_dir=work, connect=connect)
+    if [st.name for st in sim.instances] != header["instances"]:
+        raise SimError(f"{path}: instances {header['instances']}, board gives {[st.name for st in sim.instances]}")
+    sim.replaying = True
+    try:
+        sim.start()
+        i = 0
+        while i < len(entries):
+            kind, inst, payload = entries[i]
+            i += 1
+            st = sim.instances[inst]
+            if kind == record_mod.KIND_BLOCK:
+                idx, offset = struct.unpack_from("<HI", payload)
+                p = st.port(proto.CLASSES["BLOCK"], idx)
+                p._block()[offset:offset + len(payload) - 6] = payload[6:]
+                continue
+            if kind != record_mod.KIND_RUN:
+                raise SimError(f"{path}: transaction answer without RUN")
+            replies = []
+            while i < len(entries) and entries[i][0] == record_mod.KIND_XFER:
+                replies.append(entries[i][2])
+                i += 1
+            until, quantum = struct.unpack_from("<Q", payload)[0], struct.unpack_from("<Q", payload, 16)[0]
+            done = st.inst.run_payload(payload, replies)
+            st.apply(done)
+            sim.now_ns = max(sim.now_ns, done.end if quantum else until)
+            if replies:
+                raise SimError(f"{path}: {len(replies)} transaction answers not used (firmware changed ?)")
+        same = sim.trace_digest() == footer["digest"] and sim.now_ns == footer["now_ns"]
+    finally:
+        sim.stop()
+    return sim, same

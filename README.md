@@ -16,7 +16,7 @@ une GUI web et d'autres firmwares).
 - **eScope** sur chaque instance sans code dans le firmware (endpoint V3 du host, port affiché par
   `e2sim run`), et relais TCP de n'importe quelle UART (`tcp:` dans `board.yaml`).
 
-Spécification : [docs/SPEC.md](docs/SPEC.md). État : V0 terminée, V1 en cours (multi-firmware, eScope, relais TCP, GUI web faits ; record/replay, licence à venir).
+Spécification : [docs/SPEC.md](docs/SPEC.md). État : V0 terminée, V1 en cours (multi-firmware, eScope, relais TCP, GUI web, record/replay faits ; licence à venir).
 
 ## Arborescence
 
