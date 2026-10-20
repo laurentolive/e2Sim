@@ -125,8 +125,8 @@ def load(path: str | Path) -> Board:
                 _err(file, f"power.{k}: port expected")
 
     reset = d.get("reset", "in_process")
-    if reset != "in_process":
-        _err(file, f"reset: {reset} not supported yet (in_process)")
+    if reset not in ("in_process", "process"):
+        _err(file, f"reset: {reset} unknown (in_process, process)")
 
     cpu = d.get("cpu") or {}
     return Board(file=file, name=d.get("name", file.stem), firmware=d["firmware"], runner=d.get("runner"),

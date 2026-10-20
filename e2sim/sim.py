@@ -305,12 +305,28 @@ class InstanceState:
                 self.escope.on_sample_ack(rec[1], rec[2])
         self.powered = done.powered
         self.halted = done.halted
+        if done.exiting:
+            self._restart(done)
         if was_powered and not self.powered:
             self._outputs_cleared()
             self.sim.trace.append((done.now, self.name, "POWER", 0))
         if was_powered != self.powered and not self.sim.replaying:
             for m in self.models:
                 m.on_power(self.powered)
+
+    def _restart(self, done: proto.Done):
+        """reset: process: the runner ended on a reset, a new process boots at the time of the reset."""
+        cause, t = next((r[1], r[2]) for r in reversed(done.records) if r[0] == "reset")
+        self.inst.stop()
+        for p in self.ports.values():
+            if p.mm is not None:
+                p.mm.close()
+                p.mm = None
+        self.sent.clear()  # the new process knows no input: all sent again
+        if self.escope is not None:
+            self.escope._cfg_dirty = True
+        self.inst.restarts += 1
+        self.inst.start(start_ns=t, boot_cause=proto.RESET_CODES[cause])
 
     def _notify(self, p: Port, v):
         if self.sim.replaying:  # replay: the recorded inputs only, no model
@@ -424,12 +440,14 @@ class Sim:
     """One firmware (board.yaml). sim["PORT"], sim.var("expr"), sim.model("Name"), sim.run(s=1)."""
 
     def __init__(self, board: str | Path, *, toolchain: str | None = None, work_dir: str | Path | None = None,
-                 connect: int | None = None, timeout_s: float = 10.0, record: str | Path | None = None):
+                 connect: int | None = None, timeout_s: float = 10.0, record: str | Path | None = None,
+                 reset_mode: str | None = None):
         self.system = board_mod.load_system(board)
         self.board = self.system.instances[0][1]
         self.toolchain_name = toolchain or os.environ.get("E2SIM_TOOLCHAIN") or self.board.toolchain
         self.work_dir = Path(work_dir) if work_dir else self.board.dir / "out"
         self.connect = connect
+        self.reset_mode = reset_mode  # overrides reset: of the boards ("in_process" / "process")
         self.timeout_s = timeout_s
         self.now_ns = 0
         self.quantum_ns = self.board.quantum_ns
@@ -492,7 +510,8 @@ class Sim:
                     path.parent.mkdir(parents=True, exist_ok=True)
                     blocks_cfg.append((idx, spec.fill, str(path)))
             st.inst = Instance(st.name, dll, runner, yield_cost_ns=st.board.yield_cost_ns, blocks_cfg=blocks_cfg,
-                               timeout_s=self.timeout_s, connect_port=self.connect, log_dir=self.work_dir)
+                               timeout_s=self.timeout_s, connect_port=self.connect, log_dir=self.work_dir,
+                               reset_process=(self.reset_mode or st.board.reset) == "process")
             if self.toolchain and st.inst.pe.arch != self.toolchain.arch:
                 raise SimError(f"{dll.name} is {st.inst.pe.arch}, toolchain {self.toolchain.name} is {self.toolchain.arch}")
             st.inst.xfer_handler = st.on_xfer

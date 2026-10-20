@@ -185,3 +185,27 @@ def test_t16_force_an_input_driven_by_a_model(sim):
         raise AssertionError("an output cannot be forced")
     except e2sim.SimError:
         pass
+
+
+@e2sim.requirement("E2SIM-RESET-02")
+def test_t17_reset_process(e2sim_board, e2sim_toolchain, tmp_path):
+    """reset: process: a watchdog reset ends the runner, a new process boots at the same virtual time."""
+    from e2sim.sim import replay
+
+    rec = tmp_path / "proc.e2simrec"
+    with e2sim.Sim(e2sim_board, toolchain=e2sim_toolchain, work_dir=tmp_path / "w", reset_mode="process",
+                   record=rec) as sim:
+        boot(sim)
+        st = sim.instance()
+        pid = st.inst.pid
+        sim.model("TempSensor").stuck_busy = True
+        sim.run_until(lambda: any(c == "wdt" for _, c in sim.resets), timeout_s=2, desc="watchdog reset")
+        sim.model("TempSensor").stuck_busy = False
+        sim.run(s=1)
+        assert st.inst.pid != pid and st.inst.restarts == 1, "new runner process"
+        assert sim.powered and sim.var("app.wdtReset"), "the firmware boots again in the new process"
+        assert sim.var("settings.wdtCount") == 1, "NVM file kept across the processes"
+        assert "boot (watchdog)" in sim["UART_DEBUG"].text
+        sim["LCD"].assert_matches("ref/wdt_reset.png")
+    _, same = replay(rec, work_dir=tmp_path / "replay")
+    assert same, "a process reset replays identically"

@@ -6,7 +6,7 @@ import socket
 import struct
 from dataclasses import dataclass, field
 
-WIRE_VERSION = 2
+WIRE_VERSION = 3
 
 MSG_HELLO = 0x01
 MSG_DONE = 0x02
@@ -145,13 +145,14 @@ class Done:
     end: int          # quantum boundary reached
     powered: bool
     halted: bool
+    exiting: bool     # reset_process: the runner ends, a new process must be started
     records: list = field(default_factory=list)
     # ("out", cls, idx, value, t) ("stream", idx, t, bytes) ("event", idx, t) ("block", idx, size, name)
     # ("log", t, level, text) ("reset", cause, t, base) ("mem", id, status, bytes)
 
 
 def decode_done(r: Reader) -> Done:
-    d = Done(now=r.u64(), end=r.u64(), powered=bool(r.u8()), halted=bool(r.u8()))
+    d = Done(now=r.u64(), end=r.u64(), powered=bool(r.u8()), halted=bool(r.u8()), exiting=bool(r.u8()))
     add = d.records.append
     while True:
         rec = r.u8()

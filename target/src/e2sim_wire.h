@@ -10,15 +10,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define WIRE_VERSION 2u
+#define WIRE_VERSION 3u
 
 /* runner -> host */
 #define MSG_HELLO     0x01 /* u32 version, u8 ptr_size, u64 module_base, u32 pid, str dll */
-#define MSG_DONE      0x02 /* u64 now, u64 end (boundary reached), u8 powered, u8 halted, records..., REC_END */
+#define MSG_DONE      0x02 /* u64 now, u64 end (boundary reached), u8 powered, u8 halted, u8 exiting, records..., REC_END */
 #define MSG_XFER_REQ  0x03 /* u8 cls, u16 idx, u64 t, u16 n, bytes */
 
 /* host -> runner */
-#define MSG_CONFIG     0x81 /* u64 yield_cost_ns, u16 nblocks, {u16 idx, u8 fill, str path}... */
+#define MSG_CONFIG     0x81 /* u64 yield_cost_ns, u16 nblocks, {u16 idx, u8 fill, str path}...,
+                                u8 reset_process, u64 start_ns, u8 boot_cause (0xFF: none) */
 #define MSG_RUN        0x82 /* u64 until, u64 from, u64 quantum (0: one run), records..., REC_END */
 #define MSG_XFER_REPLY 0x83 /* u64 cost_ns, u16 n, bytes */
 #define MSG_QUIT       0x84

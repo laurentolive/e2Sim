@@ -102,6 +102,9 @@ static struct
     bool halted;
     int irq_disabled;
     int reset_pending; /* -1: none, else cause */
+    bool reset_process; /* board.yaml reset: process: a reset ends the process, the host starts a new one */
+    bool ever_ran;      /* the DLL of this process has run (reset_process: next reset = new process) */
+    bool exiting;       /* reset_process: reset reported, the process ends after this RUN */
     e2sim_reset_cause_t reset_cause;
 
     /* firmware DLL */
@@ -403,13 +406,35 @@ static void mcu_stop(void)
     blocks_flush();
 }
 
-/* restart the MCU as after a reset: DLL reloaded, new fiber */
+/* restart the MCU as after a reset: DLL reloaded, new fiber (reset_process: the process ends instead) */
+static void mcu_boot(e2sim_reset_cause_t cause, bool add_reset_time);
+
 static void mcu_reset(e2sim_reset_cause_t cause)
+{
+    if (g.reset_process && g.ever_ran)
+    {
+        mcu_stop();
+        g.reset_pending = -1;
+        g.exiting = true;
+        wbuf_u8(&g.done, REC_RESET);
+        wbuf_u8(&g.done, (uint8_t)cause);
+        wbuf_u64(&g.done, g.now + RESET_TIME_NS); /* the new process starts at this time */
+        wbuf_u64(&g.done, (uint64_t)(uintptr_t)g.dll);
+        return;
+    }
+    mcu_boot(cause, true);
+}
+
+static void mcu_boot(e2sim_reset_cause_t cause, bool add_reset_time)
 {
     mcu_stop();
     dll_unload();
     dll_load();
-    g.now += RESET_TIME_NS;
+    if (add_reset_time)
+    {
+        g.now += RESET_TIME_NS;
+    }
+    g.ever_ran = true;
     g.reset_cause = cause;
     g.reset_pending = -1;
     wbuf_u8(&g.done, REC_RESET);
@@ -475,6 +500,10 @@ static void run_slice(uint64_t until)
     g.quantum_end = until;
     for (;;)
     {
+        if (g.exiting)
+        {
+            break;
+        }
         service_due();
         if (g.powered && (g.app_fiber != NULL))
         {
@@ -483,7 +512,7 @@ static void run_slice(uint64_t until)
         if (g.reset_pending >= 0)
         {
             mcu_reset((e2sim_reset_cause_t)g.reset_pending);
-            continue;
+            continue; /* exiting: leaves at the top of the loop */
         }
         if (!g.powered || (g.app_fiber == NULL))
         {
@@ -532,7 +561,7 @@ static uint64_t run_until(uint64_t from, uint64_t until, uint64_t q)
     for (;;)
     {
         run_slice(end);
-        if ((end >= until) || (g.done.n != 0u)) /* records of the RUN itself (reset...) included */
+        if ((end >= until) || (g.done.n != 0u) || g.exiting) /* records of the RUN itself (reset...) included */
         {
             return end;
         }
@@ -1024,6 +1053,7 @@ static void handle_run(void)
     wbuf_u64(&g.tx, end);
     wbuf_u8(&g.tx, g.powered ? 1u : 0u);
     wbuf_u8(&g.tx, g.halted ? 1u : 0u);
+    wbuf_u8(&g.tx, g.exiting ? 1u : 0u);
     wbuf_bytes(&g.tx, g.done.p, g.done.n);
     wbuf_bytes(&g.tx, g.samples.p, g.samples.n);
     wbuf_u8(&g.tx, REC_END);
@@ -1045,9 +1075,18 @@ static void handle_config(void)
         b->fill = rbuf_u8(&r);
         rbuf_str(&r, b->path, sizeof(b->path));
     }
+    g.reset_process = rbuf_u8(&r) != 0u;
+    uint64_t start = rbuf_u64(&r);
+    uint8_t boot = rbuf_u8(&r);
     if (r.error)
     {
         fatal("malformed CONFIG message");
+    }
+    g.now = start;
+    if (boot != 0xFFu) /* new process after a reset (reset_process): boot at once */
+    {
+        g.powered = true;
+        mcu_boot((e2sim_reset_cause_t)boot, false);
     }
 }
 
@@ -1134,6 +1173,10 @@ int main(int argc, char **argv)
         else if (type == MSG_RUN)
         {
             handle_run();
+            if (g.exiting)
+            {
+                break; /* reset_process: the host starts a new process */
+            }
         }
         else if (type == MSG_QUIT)
         {

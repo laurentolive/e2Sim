@@ -16,7 +16,7 @@ XferHandler = Callable[[int, int, int, bytes], "tuple[bytes, int]"]
 class Instance:
     def __init__(self, name: str, dll: Path, runner: Path, *, yield_cost_ns: int = 1000,
                  blocks_cfg: list[tuple[int, int, str]] | None = None, timeout_s: float = 10.0,
-                 connect_port: int | None = None, log_dir: Path | None = None):
+                 connect_port: int | None = None, log_dir: Path | None = None, reset_process: bool = False):
         self.name = name
         self.dll = Path(dll)
         self.runner = Path(runner)
@@ -25,6 +25,8 @@ class Instance:
         self.timeout_s = timeout_s
         self.connect_port = connect_port
         self.log_dir = log_dir
+        self.reset_process = reset_process
+        self.restarts = 0
         self.proc: subprocess.Popen | None = None
         self.link: proto.Link | None = None
         self.pe = pe.read(self.dll)
@@ -36,7 +38,8 @@ class Instance:
         self._mem_id = 0
 
     # ------------------------------------------------------------------
-    def start(self):
+    def start(self, start_ns: int = 0, boot_cause: int | None = None):
+        """Start the runner. start_ns / boot_cause: new process after a reset (reset: process)."""
         for p, what in ((self.dll, "firmware"), (self.runner, "runner")):
             if not p.is_file():
                 raise FileNotFoundError(f"{self.name}: {what} {p} not found (build it first: make)")
@@ -49,7 +52,7 @@ class Instance:
             out = None
             if self.log_dir is not None:
                 self.log_dir.mkdir(parents=True, exist_ok=True)
-                out = open(self.log_dir / f"{self.name}.stdout.log", "wb")  # noqa: SIM115 - owned by the process
+                out = open(self.log_dir / f"{self.name}.stdout.log", "ab" if self.restarts else "wb")  # noqa: SIM115 - owned by the process
             self.proc = subprocess.Popen(
                 [str(self.runner), "--dll", str(self.dll), "--host", f"127.0.0.1:{port}"],
                 stdout=out, stderr=subprocess.STDOUT if out else None)
@@ -76,6 +79,7 @@ class Instance:
         w = proto.Writer().u64(self.yield_cost_ns).u16(len(self.blocks_cfg))
         for idx, fill, path in self.blocks_cfg:
             w.u16(idx).u8(fill).str(path)
+        w.u8(1 if self.reset_process else 0).u64(start_ns).u8(0xFF if boot_cause is None else boot_cause)
         self.link.send(proto.MSG_CONFIG, bytes(w.b))
 
     def stop(self):

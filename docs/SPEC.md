@@ -162,8 +162,9 @@ Le process d'une instance vit **toute la session** : le debugger reste attaché 
   sorties passent à l'état « non alimenté », le temps virtuel continue pour le reste du système.
   **Power on** = reset avec la cause `POWER_ON`.
 - Limite : le tas `malloc` est celui du process (CRT système) : un firmware qui alloue au démarrage sans
-  libérer fuit à chaque reset. Option prévue `reset: process` dans `board.yaml` pour relancer le process à la
-  place (debugger détaché ; défaut `reset: in_process`, seul implémenté en V0).
+  libérer fuit à chaque reset. Option `reset: process` dans `board.yaml` (ou `Sim(reset_mode="process")`) :
+  un reset (ou un power on après un power off) termine le runner, le host en démarre un nouveau qui boote à
+  l'instant du reset ; NVM conservée (fichiers), entrées renvoyées, debugger détaché. Défaut : `in_process`.
 - **Verrou d'alimentation** (`power: { mode: latch, button: BTN_POWER, hold: SELF_HOLD, hold_ms: 10 }`) :
   alimenté tant que la touche est appuyée ou que le firmware tient la sortie de maintien. Le verrou tient
   `hold_ms` sans l'une ni l'autre, comme la capacité d'un vrai montage pendant un reset. Autres modes :
@@ -645,6 +646,7 @@ une fonctionnalité visible a aussi un chapitre de démo. Une nouvelle fonctionn
 | Port `xfer` synchrone | capteur de température SPI | T05 | 5 |
 | Port `value` in (ADC brut) | batterie | T05 | 6 |
 | Reset dans le process (watchdog) | capteur bloqué → reset WDT | T06 | 8 |
+| Reset par nouveau process (`reset: process`) | reset WDT, NVM conservée, replay identique | T17 | — |
 | Port `value` out (PWM) | duty lu par le modèle moteur | T07 | 4 |
 | Port `event` (EXTI) | comparateur de courant → coupure immédiate | T08 | 7 |
 | Multi-firmware (`system.yaml`) | `fan_hmi` ↔ `fan_motor`, le firmware remplace le modèle | T09 | 2 à 10 |
