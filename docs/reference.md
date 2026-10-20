@@ -120,6 +120,12 @@ sim = e2sim.Sim("board.yaml" or "system.yaml", toolchain=None, work_dir=None, co
 
 `e2sim.sim.replay(path, toolchain=None, work_dir=None, connect=None) -> (Sim, same)`.
 
+`e2sim.fuzz.stream(sim, port, corpus=None, frames=1000, seed=1, every_ms=5, random_ratio=0.2, max_len=32,
+check=None, resets_allowed=False, save=None) -> FuzzResult`: deterministic random or mutated frames (bit flip,
+byte replaced / inserted / deleted, truncation, duplication) written on a stream port; stops at the first crash,
+loop without yield point, unexpected reset or failed `check()`. `FuzzResult.ok`, `.report()`, `.history`
+(inputs), `save=` writes them (hex, one per line). With `Sim(record=…)` the run replays exactly.
+
 | `Port` | |
 |---|---|
 | `value`, `get()`, `set(v)`, `press(ms=100, value=1)` | bit / value; `==`, `int()`, `bool()` |

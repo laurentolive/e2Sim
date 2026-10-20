@@ -674,6 +674,7 @@ cité existe, chaque test de l'exemple porte une exigence.
 | Forçage d'une entrée pilotée par un modèle (`force` / `release`) | `VBAT_ADC` forcé à 0 | T16 | 6 |
 | Débit d'une ligne série (`baud:`) | `UART_DEBUG` à 9600, liaison moteur saturée à 300 | T18 | — |
 | Index de `board.yaml` par enum ou `#define` (DWARF, `-g3`) | `UART_DEBUG` = `HAL_UART_TERMINAL` | T19 | — |
+| Fuzzing des parseurs de trames (`e2sim.fuzz`) | protocole IHM ↔ moteur, des deux côtés | T20 | — |
 | Couverture de code gcov des tests système | `make coverage` : 93 % des lignes des deux firmwares | selftest (test_coverage_report) | — |
 | Diagnostic « boucle sans yield point » avec la pile | firmware de selftest (`hang_here`) : bug volontaire hors de l'exemple | selftest (test_hang_report_sim) | — |
 | Record / replay, sur l'autre architecture | enregistrement d'un scénario, rejoué | T12 | 11 |
