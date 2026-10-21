@@ -1,0 +1,2 @@
+# shell scripts run in WSL / Linux: LF whatever core.autocrlf
+*.sh text eol=lf
