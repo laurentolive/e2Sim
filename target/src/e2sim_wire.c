@@ -1,9 +1,23 @@
 /*
  * e2Sim - host <-> runner wire protocol (MIT)
  */
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+typedef int wire_len_t;
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#include <time.h>
+#include <unistd.h>
+typedef int SOCKET;
+#define INVALID_SOCKET (-1)
+#define closesocket close
+typedef size_t wire_len_t;
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +27,7 @@
 
 static SOCKET s_sock = INVALID_SOCKET;
 
+#ifdef _WIN32
 /* shared memory transport (after CONFIG): [u32 len][u8 type][payload] in a view per direction, one event each */
 static uint8_t *s_h2r;
 static uint8_t *s_r2h;
@@ -78,6 +93,41 @@ static int shm_recv(uint8_t *type, wbuf_t *payload)
     wbuf_bytes(payload, &s_h2r[5], len - 1u);
     return 0;
 }
+#else
+/* POSIX: TCP only (the host does not ask for the shared memory) */
+static uint8_t *s_h2r;
+static uint8_t *s_r2h;
+
+int wire_use_shm(const char *name, uint32_t host_pid)
+{
+    (void)name;
+    (void)host_pid;
+    return -1;
+}
+
+static int shm_send(uint8_t type, const wbuf_t *payload)
+{
+    (void)type;
+    (void)payload;
+    return -1;
+}
+
+static int shm_recv(uint8_t *type, wbuf_t *payload)
+{
+    (void)type;
+    (void)payload;
+    return -1;
+}
+
+static uint32_t GetTickCount(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)((uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u);
+}
+
+static void Sleep(uint32_t ms) { usleep(ms * 1000u); }
+#endif
 
 /*----------------------------------------------------------------------------*/
 static void wbuf_reserve(wbuf_t *b, size_t extra)
@@ -204,11 +254,13 @@ size_t rbuf_str(rbuf_t *r, char *out, size_t max)
 /*----------------------------------------------------------------------------*/
 int wire_connect(const char *host, uint16_t port, uint32_t timeout_ms)
 {
+#ifdef _WIN32
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
     {
         return -1;
     }
+#endif
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
@@ -219,7 +271,7 @@ int wire_connect(const char *host, uint16_t port, uint32_t timeout_ms)
     }
 
     /* the host may start listening after the runner (launch from a debugger) */
-    DWORD start = GetTickCount();
+    uint32_t start = GetTickCount();
     for (;;)
     {
         s_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -239,7 +291,7 @@ int wire_connect(const char *host, uint16_t port, uint32_t timeout_ms)
         }
         Sleep(100);
     }
-    BOOL nodelay = TRUE;
+    int nodelay = 1;
     setsockopt(s_sock, IPPROTO_TCP, TCP_NODELAY, (const char *)&nodelay, sizeof(nodelay));
     return 0;
 }
@@ -249,7 +301,7 @@ static int send_all(const uint8_t *p, size_t n)
     while (n != 0u)
     {
         int chunk = (n > 0x10000u) ? 0x10000 : (int)n;
-        int sent = send(s_sock, (const char *)p, chunk, 0);
+        int sent = (int)send(s_sock, (const char *)p, (wire_len_t)chunk, 0);
         if (sent <= 0)
         {
             return -1;
@@ -265,7 +317,7 @@ static int recv_all(uint8_t *p, size_t n)
     while (n != 0u)
     {
         int chunk = (n > 0x10000u) ? 0x10000 : (int)n;
-        int got = recv(s_sock, (char *)p, chunk, 0);
+        int got = (int)recv(s_sock, (char *)p, (wire_len_t)chunk, 0);
         if (got <= 0)
         {
             return -1;
@@ -325,5 +377,7 @@ void wire_close(void)
         closesocket(s_sock);
         s_sock = INVALID_SOCKET;
     }
+#ifdef _WIN32
     WSACleanup();
+#endif
 }

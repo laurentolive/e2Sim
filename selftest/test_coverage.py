@@ -3,23 +3,20 @@
 import subprocess
 from pathlib import Path
 
-from e2sim import coverage, proto, toolchains
+from conftest import make_program
+from e2sim import coverage, pe, proto
 from e2sim.instance import Instance
 
 HERE = Path(__file__).parent
 
 
-def test_coverage_report(request, tmp_path):
-    tc_name = request.config.getoption("--e2sim-toolchain")
+def test_coverage_report(tc, tmp_path):
     build = tmp_path / "build"
-    reg = toolchains.load(start=HERE)
-    tc = reg.get(tc_name)
-    make = "C:/Dev/Tools/make.exe"
-    r = subprocess.run([make, "-s", "-C", str(HERE / "blink"), f"TOOLCHAIN={tc.name}", f"BUILD={build.as_posix()}",
+    r = subprocess.run([make_program(), "-s", "-C", str(HERE / "blink"), f"TOOLCHAIN={tc.name}", f"BUILD={build.as_posix()}",
                         "COVERAGE=1"], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
     out = build / tc.name
-    i = Instance("blink", out / "blink.dll", out / "e2sim_runner.exe", timeout_s=10)
+    i = Instance("blink", out / f"blink{pe.LIB_EXT}", out / f"e2sim_runner{pe.EXE_EXT}", timeout_s=10)
     i.start()
     try:
         i.run(0, bytes([proto.REC_POWER, 1]))

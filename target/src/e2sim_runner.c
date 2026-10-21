@@ -13,14 +13,13 @@
 #define __USE_MINGW_ANSI_STDIO 1
 #define E2SIM_RUNNER
 
-#include <windows.h>
-
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "e2sim.h"
+#include "e2sim_os.h"
 #include "e2sim_wire.h"
 
 #define MAX_TIMERS      64u
@@ -77,14 +76,13 @@ typedef struct
     bool used;
     uint16_t idx;
     size_t size;
-    HANDLE file;
-    HANDLE mapping;
+    void *handle;
     void *view;
-    char name[64];
+    char name[OS_PATH_MAX];
     /* configuration from the host */
     bool cfg;
     uint8_t fill;
-    char path[MAX_PATH];
+    char path[OS_PATH_MAX];
 } block_t;
 
 static struct
@@ -96,7 +94,6 @@ static struct
     uint64_t yield_cost;
 
     /* execution */
-    void *sched_fiber;
     void *app_fiber;
     bool in_fiber;
     bool powered;
@@ -109,8 +106,10 @@ static struct
     e2sim_reset_cause_t reset_cause;
 
     /* firmware DLL */
-    char dll_path[MAX_PATH];
-    HMODULE dll;
+    char dll_path[OS_PATH_MAX];
+    void *dll;
+    uint64_t dll_base;      /* load address of the firmware */
+    uint64_t dll_link_base; /* its link address (symbols) */
     app_main_t app_main;
 
     /* hardware */
@@ -136,10 +135,9 @@ static struct
 } g = {.reset_pending = -1};
 
 /* hang monitor: progress of the RUN being served, watched by a thread (wall clock) */
-static volatile LONG s_progress;
-static volatile LONG s_in_run;
-static HANDLE s_main_thread;
-static DWORD s_hang_ms = 3000;
+static volatile long s_progress;
+static volatile long s_in_run;
+static uint32_t s_hang_ms = 3000;
 static bool mem_valid(uintptr_t addr, size_t size, bool write);
 
 static void fatal(const char *fmt, ...)
@@ -158,12 +156,16 @@ static void fatal(const char *fmt, ...)
 /*============================================================================*/
 static void dll_load(void)
 {
-    g.dll = LoadLibraryA(g.dll_path);
+    char err[256];
+    g.dll = os_lib_load(g.dll_path, err, sizeof(err));
     if (g.dll == NULL)
     {
-        fatal("cannot load %s (error %lu)", g.dll_path, GetLastError());
+        fatal("cannot load %s (%s)", g.dll_path, err);
     }
-    g.app_main = (app_main_t)(void *)GetProcAddress(g.dll, "e2sim_app_main");
+    g.dll_base = os_lib_base(g.dll);
+    g.dll_link_base = os_lib_link_base(g.dll);
+    void *sym = os_lib_sym(g.dll, "e2sim_app_main");
+    memcpy(&g.app_main, &sym, sizeof(g.app_main));
     if (g.app_main == NULL)
     {
         fatal("%s: e2sim_app_main not found (sources built with -Dmain=e2sim_app_main ?)", g.dll_path);
@@ -174,7 +176,7 @@ static void dll_unload(void)
 {
     if (g.dll != NULL)
     {
-        FreeLibrary(g.dll);
+        os_lib_unload(g.dll);
         g.dll = NULL;
         g.app_main = NULL;
     }
@@ -300,13 +302,12 @@ static void recompute_deadline(void)
 static void to_sched(void)
 {
     g.in_fiber = false;
-    SwitchToFiber(g.sched_fiber);
+    os_fiber_to_sched();
     g.in_fiber = true;
 }
 
-static void WINAPI fiber_proc(void *arg)
+static void fiber_proc(void)
 {
-    (void)arg;
     g.in_fiber = true;
     int ret = g.app_main();
     e2sim_log(E2SIM_LOG_WARNING, "e2sim: main() returned %d, MCU halted", ret);
@@ -386,9 +387,9 @@ static void blocks_flush(void)
 {
     for (unsigned i = 0; i < MAX_BLOCKS; i++)
     {
-        if (g.blocks[i].used && (g.blocks[i].file != NULL))
+        if (g.blocks[i].used && (g.blocks[i].view != NULL))
         {
-            FlushViewOfFile(g.blocks[i].view, 0);
+            os_block_flush(g.blocks[i].view, g.blocks[i].size, g.blocks[i].handle);
         }
     }
 }
@@ -398,7 +399,7 @@ static void mcu_stop(void)
 {
     if (g.app_fiber != NULL)
     {
-        DeleteFiber(g.app_fiber);
+        os_fiber_delete(g.app_fiber);
         g.app_fiber = NULL;
     }
     memset(g.timers, 0, sizeof(g.timers));
@@ -427,7 +428,7 @@ static void mcu_reset(e2sim_reset_cause_t cause)
         wbuf_u8(&g.done, REC_RESET);
         wbuf_u8(&g.done, (uint8_t)cause);
         wbuf_u64(&g.done, g.now + RESET_TIME_NS); /* the new process starts at this time */
-        wbuf_u64(&g.done, (uint64_t)(uintptr_t)g.dll);
+        wbuf_u64(&g.done, g.dll_base);
         return;
     }
     mcu_boot(cause, true);
@@ -448,13 +449,13 @@ static void mcu_boot(e2sim_reset_cause_t cause, bool add_reset_time)
     wbuf_u8(&g.done, REC_RESET);
     wbuf_u8(&g.done, (uint8_t)cause);
     wbuf_u64(&g.done, g.now);
-    wbuf_u64(&g.done, (uint64_t)(uintptr_t)g.dll);
+    wbuf_u64(&g.done, g.dll_base);
     if (g.powered)
     {
-        g.app_fiber = CreateFiber(FIBER_STACK, fiber_proc, NULL);
+        g.app_fiber = os_fiber_create(FIBER_STACK, fiber_proc);
         if (g.app_fiber == NULL)
         {
-            fatal("CreateFiber failed (error %lu)", GetLastError());
+            fatal("cannot create the fiber of the firmware");
         }
     }
 }
@@ -555,7 +556,7 @@ static void run_slice(uint64_t until)
         }
         recompute_deadline();
         g.in_fiber = true;
-        SwitchToFiber(g.app_fiber);
+        os_fiber_to_app(g.app_fiber);
         g.in_fiber = false;
     }
 }
@@ -733,31 +734,11 @@ E2SIM_API void *e2sim_block(uint16_t idx, size_t size)
         return b->view;
     }
     b->size = size;
-    snprintf(b->name, sizeof(b->name), "Local\\e2sim_%lu_%u", GetCurrentProcessId(), idx);
-    HANDLE file = INVALID_HANDLE_VALUE;
     bool fresh = true;
-    if (b->cfg && (b->path[0] != '\0'))
-    {
-        file = CreateFileA(b->path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (file == INVALID_HANDLE_VALUE)
-        {
-            fatal("block %u: cannot open %s (error %lu)", idx, b->path, GetLastError());
-        }
-        LARGE_INTEGER cur;
-        GetFileSizeEx(file, &cur);
-        fresh = ((uint64_t)cur.QuadPart < size);
-        b->file = file;
-    }
-    b->mapping = CreateFileMappingA(file, NULL, PAGE_READWRITE, (DWORD)((uint64_t)size >> 32), (DWORD)size, b->name);
-    if (b->mapping == NULL)
-    {
-        fatal("block %u: CreateFileMapping failed (error %lu)", idx, GetLastError());
-    }
-    b->view = MapViewOfFile(b->mapping, FILE_MAP_ALL_ACCESS, 0, 0, size);
+    b->view = os_block_map(idx, b->cfg ? b->path : NULL, size, b->name, sizeof(b->name), &fresh, &b->handle);
     if (b->view == NULL)
     {
-        fatal("block %u: MapViewOfFile failed (error %lu)", idx, GetLastError());
+        fatal("block %u: cannot map %zu bytes (%s)", idx, size, b->cfg ? b->path : "shared memory");
     }
     if (fresh)
     {
@@ -853,30 +834,11 @@ E2SIM_API void e2sim_log(e2sim_log_level_t level, const char *fmt, ...)
 /*============================================================================*/
 /* host link                                                                  */
 /*============================================================================*/
-static bool mem_valid(uintptr_t addr, size_t size, bool write)
+static bool mem_valid(uintptr_t addr, size_t size, bool write) { return os_mem_valid(addr, size, write); }
+
+E2SIM_API void *e2sim_addr_to_ptr(uint64_t link_addr)
 {
-    DWORD ok = write ? (PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)
-                     : (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ |
-                        PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY);
-    uintptr_t end = addr + size;
-    if ((size == 0u) || (end < addr))
-    {
-        return false;
-    }
-    while (addr < end)
-    {
-        MEMORY_BASIC_INFORMATION mbi;
-        if (VirtualQuery((const void *)addr, &mbi, sizeof(mbi)) == 0)
-        {
-            return false;
-        }
-        if ((mbi.State != MEM_COMMIT) || ((mbi.Protect & ok) == 0u) || ((mbi.Protect & PAGE_GUARD) != 0u))
-        {
-            return false;
-        }
-        addr = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
-    }
-    return true;
+    return (void *)(uintptr_t)(link_addr - g.dll_link_base + g.dll_base);
 }
 
 E2SIM_API bool e2sim_mem_valid(const void *addr, size_t size, bool write)
@@ -1114,77 +1076,26 @@ static void handle_config(void)
 /* hang monitor: a RUN without any yield point for s_hang_ms of wall clock (and no debugger attached) is a
    loop of the firmware that never calls the HAL. Its stack is sent to the host (frame pointers: -O0), then
    the process ends. */
-static DWORD WINAPI hang_monitor(void *arg)
+static void hang_monitor(void)
 {
-    (void)arg;
-    LONG last = -1;
-    DWORD since = GetTickCount();
+    long last = -1;
+    uint32_t since = os_tick_ms();
     for (;;)
     {
-        Sleep(100);
-        LONG p = s_progress;
-        if (!s_in_run || (p != last) || IsDebuggerPresent())
+        os_sleep_ms(100);
+        long p = s_progress;
+        if (!s_in_run || (p != last) || os_debugger_present())
         {
             last = p;
-            since = GetTickCount();
+            since = os_tick_ms();
             continue;
         }
-        if (GetTickCount() - since < s_hang_ms)
+        if (os_tick_ms() - since < s_hang_ms)
         {
             continue;
         }
-        SuspendThread(s_main_thread);
-        CONTEXT ctx __attribute__((aligned(16)));
-        memset(&ctx, 0, sizeof(ctx));
-        ctx.ContextFlags = CONTEXT_FULL;
         uint64_t pcs[HANG_FRAMES];
-        unsigned n = 0;
-        if (GetThreadContext(s_main_thread, &ctx))
-        {
-#if defined(__x86_64__)
-            /* x64: unwind tables of the PE (the frame pointer chain is not reliable) */
-            while ((n < HANG_FRAMES) && (ctx.Rip != 0u))
-            {
-                pcs[n] = (n == 0u) ? ctx.Rip : ctx.Rip - 1u; /* return address: inside the call */
-                n++;
-                DWORD64 base;
-                PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &base, NULL);
-                if (fn == NULL)
-                {
-                    if (!mem_valid((uintptr_t)ctx.Rsp, 8u, false))
-                    {
-                        break;
-                    }
-                    ctx.Rip = *(DWORD64 *)ctx.Rsp; /* leaf function */
-                    ctx.Rsp += 8u;
-                }
-                else
-                {
-                    PVOID handler;
-                    DWORD64 frame;
-                    RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, ctx.Rip, fn, &ctx, &handler, &frame, NULL);
-                }
-            }
-#else
-            uintptr_t fp = (uintptr_t)ctx.Ebp;
-            pcs[n++] = (uintptr_t)ctx.Eip;
-            while ((n < HANG_FRAMES) && (fp != 0u) && mem_valid(fp, 2u * sizeof(void *), false))
-            {
-                uintptr_t ret = ((uintptr_t *)fp)[1];
-                uintptr_t next = ((uintptr_t *)fp)[0];
-                if (ret == 0u)
-                {
-                    break;
-                }
-                pcs[n++] = ret - 1u; /* inside the call instruction */
-                if (next <= fp)
-                {
-                    break;
-                }
-                fp = next;
-            }
-#endif
-        }
+        unsigned n = os_main_stack(pcs, HANG_FRAMES);
         wbuf_t msg = {0};
         wbuf_u64(&msg, g.now);
         wbuf_u8(&msg, (uint8_t)n);
@@ -1195,9 +1106,8 @@ static DWORD WINAPI hang_monitor(void *arg)
         wire_send(MSG_HANG, &msg);
         fprintf(stderr, "e2sim_runner: no yield point for %lu ms: firmware loop without HAL call\n",
                 (unsigned long)s_hang_ms);
-        ExitProcess(3);
+        os_exit_now(3);
     }
-    return 0;
 }
 
 int main(int argc, char **argv)
@@ -1221,7 +1131,7 @@ int main(int argc, char **argv)
         }
         else if ((strcmp(argv[i], "--hang-timeout") == 0) && (i + 1 < argc))
         {
-            s_hang_ms = (DWORD)strtoul(argv[++i], NULL, 0); /* 0: no hang detection */
+            s_hang_ms = (uint32_t)strtoul(argv[++i], NULL, 0); /* 0: no hang detection */
         }
         else
         {
@@ -1243,24 +1153,15 @@ int main(int argc, char **argv)
     uint16_t port = (uint16_t)strtoul(colon + 1, NULL, 10);
 
     /* absolute path: the DLL is reloaded at each reset */
-    char full[MAX_PATH];
-    if (GetFullPathNameA(g.dll_path, sizeof(full), full, NULL) != 0)
-    {
-        snprintf(g.dll_path, sizeof(g.dll_path), "%s", full);
-    }
+    os_full_path(g.dll_path, sizeof(g.dll_path));
 
     g.yield_cost = 1000;
-    DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &s_main_thread, 0, FALSE,
-                    DUPLICATE_SAME_ACCESS);
+    os_main_thread_init();
     if (s_hang_ms != 0u)
     {
-        CreateThread(NULL, 0, hang_monitor, NULL, 0, NULL);
+        os_thread_start(hang_monitor);
     }
-    g.sched_fiber = ConvertThreadToFiber(NULL);
-    if (g.sched_fiber == NULL)
-    {
-        fatal("ConvertThreadToFiber failed");
-    }
+    os_fiber_init();
     dll_load();
 
     if (wire_connect(ip, port, timeout_ms) != 0)
@@ -1270,8 +1171,8 @@ int main(int argc, char **argv)
     wbuf_reset(&g.tx);
     wbuf_u32(&g.tx, WIRE_VERSION);
     wbuf_u8(&g.tx, (uint8_t)sizeof(void *));
-    wbuf_u64(&g.tx, (uint64_t)(uintptr_t)g.dll);
-    wbuf_u32(&g.tx, GetCurrentProcessId());
+    wbuf_u64(&g.tx, g.dll_base);
+    wbuf_u32(&g.tx, os_pid());
     wbuf_str(&g.tx, g.dll_path);
     if (wire_send(MSG_HELLO, &g.tx) != 0)
     {
@@ -1310,6 +1211,13 @@ int main(int argc, char **argv)
         }
     }
     mcu_stop();
+    for (unsigned i = 0; i < MAX_BLOCKS; i++)
+    {
+        if (g.blocks[i].used && (g.blocks[i].handle != NULL))
+        {
+            os_block_release(g.blocks[i].handle);
+        }
+    }
     wire_close();
     return 0;
 }

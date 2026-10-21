@@ -43,7 +43,7 @@ def cmd_coverage(args) -> int:
 
     build = Path(args.build)
     reg = toolchains.load(Path(args.registry) if args.registry else None)
-    dll = next(build.glob("*.dll"), None)
+    dll = next(iter(sorted(build.glob("*.dll")) + sorted(build.glob("*.so"))), None)
     tc = reg.by_arch(pe.read(dll).arch) if dll else reg.get(args.toolchain)
     cov = coverage.collect(build, tc.tool("gcov"), Path(args.sources) if args.sources else None)
     if not cov:

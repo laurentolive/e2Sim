@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import board as board_mod
-from . import png, proto, toolchains
+from . import pe, png, proto, toolchains
 from .instance import Instance
 from .model import Model
 from .symbols import Symbols
@@ -322,7 +322,7 @@ class InstanceState:
                 _, idx, size, name = rec
                 p = self.port(proto.CLASSES["BLOCK"], idx)
                 if p.mm is None:
-                    p.mm = mmap.mmap(-1, size, tagname=name)
+                    p.mm = _map_block(name, size)
             elif kind == "log":
                 _, t, level, text = rec
                 self.logs.append((t, level, text))
@@ -559,8 +559,9 @@ class Sim:
         if reg is not None:
             self.toolchain = reg.get(self.toolchain_name)
         name = self.toolchain.name if self.toolchain else ""
-        dll = (b.dir / b.firmware.format(toolchain=name)).resolve()
-        runner = (b.dir / b.runner.format(toolchain=name)).resolve() if b.runner else dll.parent / "e2sim_runner.exe"
+        dll = pe.firmware_path((b.dir / b.firmware.format(toolchain=name)).resolve())
+        runner = ((b.dir / b.runner.format(toolchain=name)).resolve() if b.runner
+                  else dll.parent / f"e2sim_runner{pe.EXE_EXT}")
         gdb = self.toolchain.tool("gdb") if self.toolchain else "gdb"
         return dll, runner, gdb
 
@@ -861,6 +862,14 @@ class Sim:
     def trace_digest(self) -> str:
         """Hash of every output, stream, reset and power event: equal runs give equal digests."""
         return hashlib.sha256(repr(self.trace).encode()).hexdigest()
+
+
+def _map_block(name: str, size: int) -> mmap.mmap:
+    """Block of the runner: named mapping (Windows) or file (Linux: /dev/shm or the NVM file)."""
+    if os.name == "nt":
+        return mmap.mmap(-1, size, tagname=name)
+    with open(name, "r+b") as f:
+        return mmap.mmap(f.fileno(), size)
 
 
 def _decode(info, data: bytes) -> Any:

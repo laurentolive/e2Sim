@@ -4,11 +4,21 @@ same outputs; on the other architecture too."""
 from pathlib import Path
 
 import e2sim
+from e2sim import toolchains
 from e2sim.sim import replay
 from fan_helpers import boot, fan_on, key
 
 SYSTEM = Path(__file__).parent.parent / "sim" / "system.yaml"
-OTHER = {"host32": "host64", "host64": "host32"}
+
+
+def other_arch(name):
+    """Toolchain of the other architecture (host32 <-> host64, linux32 <-> linux64), None if absent."""
+    reg = toolchains.load(start=Path(__file__).parent)
+    tc = reg.get(name)
+    try:
+        return reg.by_arch("x86_64" if tc.ptr_size == 4 else "i686").name
+    except toolchains.ToolchainError:
+        return None
 
 
 def hmi_scenario(sim):
@@ -51,7 +61,7 @@ def test_t12_replay_system_other_arch(e2sim_toolchain, tmp_path):
         expected = sim.trace_digest()
     _, same = replay(rec, work_dir=tmp_path / "same")
     assert same
-    other = OTHER.get(e2sim_toolchain or "host32")
+    other = other_arch(e2sim_toolchain)
     if other:
         r, same = replay(rec, toolchain=other, work_dir=tmp_path / "other")
         assert same and r.trace_digest() == expected, f"same outputs on {other}: portable firmware"

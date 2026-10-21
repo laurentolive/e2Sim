@@ -11,10 +11,9 @@ HERE = Path(__file__).parent
 
 
 @pytest.fixture
-def inst(request):
-    tc = request.config.getoption("--e2sim-toolchain")
-    b = HERE / "blink" / "build" / tc
-    i = Instance("blink", b / "blink.dll", b / "e2sim_runner.exe", timeout_s=5)
+def inst(blink):
+    dll, runner, _ = blink
+    i = Instance("blink", dll, runner, timeout_s=5)
     i.xfer_handler = lambda cls, idx, t, tx: (bytes([tx[1], tx[0]]), 0)
     i.start()
     yield i
@@ -62,15 +61,14 @@ def test_memory_access(inst):
     assert ("mem", 1, 1, b"") in d.records
 
 
-def test_hang_report(request):
+def test_hang_report(blink):
     """A loop without yield point: the runner reports the stack, the host names the functions."""
     import time
 
     from e2sim.symbols import Symbols
 
-    tc = request.config.getoption("--e2sim-toolchain")
-    b = HERE / "blink" / "build" / tc
-    i = Instance("blink", b / "blink.dll", b / "e2sim_runner.exe", timeout_s=10, hang_timeout_s=0.5)
+    dll, runner, gdb = blink
+    i = Instance("blink", dll, runner, timeout_s=10, hang_timeout_s=0.5)
     i.start()
     try:
         i.run(0, bytes([proto.REC_POWER, 1]))
@@ -81,18 +79,16 @@ def test_hang_report(request):
         assert time.monotonic() - t0 < 5
     finally:
         i.stop()
-    gdb = "C:/Dev/Tools/msys64/" + ("ucrt64" if tc == "host64" else "mingw32") + "/bin/gdb.exe"
-    frames = Symbols(b / "blink.dll", gdb).where(e.value.pcs)
+    frames = Symbols(dll, gdb).where(e.value.pcs)
     assert frames[0].startswith("hang_here (blink.c:"), frames
     assert any(f.startswith("e2sim_app_main (blink.c:") for f in frames), frames
 
 
-def test_hang_report_sim(request, tmp_path):
+def test_hang_report_sim(tc, tmp_path):
     """Sim level: the hang is a SimError naming the functions of the loop."""
     import e2sim
 
-    tc = request.config.getoption("--e2sim-toolchain")
-    sim = e2sim.Sim(HERE / "blink" / "blink.board.yaml", toolchain=tc, work_dir=tmp_path)
+    sim = e2sim.Sim(HERE / "blink" / "blink.board.yaml", toolchain=tc.name, work_dir=tmp_path)
     try:
         sim.start()
         for st in sim.instances:

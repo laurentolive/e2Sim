@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from conftest import make_program
 from e2sim import extract
 
 TARGET_MAKEFILE = """\
@@ -44,7 +45,7 @@ def check(text: str):
 
 def test_extract_from_make(tmp_path):
     fw = tree(tmp_path)
-    compiles = extract.from_make("C:/Dev/Tools/make.exe", fw)  # dry mode: no ARM compiler needed
+    compiles = extract.from_make(make_program(), fw)  # dry mode: no ARM compiler needed
     assert len(compiles) == 4
     text = extract.make_fragment(compiles, "fw", fw, exclude=["*/hal/mcu*", "*/bsp*"],
                                  adapter=[fw / "e2sim_hal"], drop_defines=["USE_FPU"])

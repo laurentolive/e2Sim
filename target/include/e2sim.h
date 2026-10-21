@@ -15,10 +15,12 @@
 extern "C" {
 #endif
 
-#ifdef E2SIM_RUNNER
+#if defined(_WIN32) && defined(E2SIM_RUNNER)
 #define E2SIM_API __declspec(dllexport)
-#else
+#elif defined(_WIN32)
 #define E2SIM_API __declspec(dllimport)
+#else
+#define E2SIM_API __attribute__((visibility("default"))) /* runner linked with -rdynamic */
 #endif
 
 #define E2SIM_VERSION 1u
@@ -84,6 +86,8 @@ E2SIM_API void e2sim_irq_enable(void);
 /* memory of the process: committed and readable (writable) on the whole range. For code that accesses
    addresses received from outside (eScope embedded in the firmware: ESCOPE_ADDR_IS_VALID) */
 E2SIM_API bool e2sim_mem_valid(const void *addr, size_t size, bool write);
+/* link address of the firmware (symbols, eScope) -> address in the process: ESCOPE_ADDR_TO_PTR */
+E2SIM_API void *e2sim_addr_to_ptr(uint64_t link_addr);
 
 /* diagnostic */
 E2SIM_API void e2sim_log(e2sim_log_level_t level, const char *fmt, ...) __attribute__((format(gnu_printf, 2, 3)));
