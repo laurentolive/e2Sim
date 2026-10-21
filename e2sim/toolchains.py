@@ -24,6 +24,7 @@ class Toolchain:
     arch: str
     prefix: str
     path: list[str] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)  # added to every compile / link (e.g. -m32)
 
     def tool(self, name: str) -> str:
         """Full path of a tool of the chain (gcc, objcopy, gdb...)."""
@@ -96,7 +97,8 @@ def load(file: Path | None = None, start: Path | None = None) -> Registry:
         if "prefix" not in d:
             raise ToolchainError(f"{file}: toolchain '{name}': 'prefix' missing")
         chains[name] = Toolchain(name=name, arch=d.get("arch", "x86_64"), prefix=str(d["prefix"]),
-                                 path=[str(p) for p in d.get("path") or []])
+                                 path=[str(p) for p in d.get("path") or []],
+                                 flags=[str(f) for f in d.get("flags") or []])
     return Registry(file=file, python=data.get("python"), toolchains=chains, default=data.get("default"))
 
 
@@ -112,6 +114,7 @@ def make_fragment(tc: Toolchain, registry: Registry) -> str:
         f"AR := {tc.tool('ar')}",
         f"OBJCOPY := {tc.tool('objcopy')}",
         f"GDB := {tc.tool('gdb')}",
+        f"E2SIM_ARCH_FLAGS := {' '.join(tc.flags)}",
         # absolute: the toolchain PATH below may hide the system Python
         f"E2SIM_PY := {Path(registry.python or sys.executable).as_posix()}",
     ]

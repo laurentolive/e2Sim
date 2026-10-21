@@ -34,6 +34,8 @@ toolchains:
 default: host32
 ```
 
+Optional per toolchain: `flags: [-m32]` (added to every compile and link).
+
 Search: `E2SIM_TOOLCHAINS`, then `e2sim_toolchains.yaml` in the current directory and its parents, then
 `~/.e2sim/e2sim_toolchains.yaml`. Choice: command line (`TOOLCHAIN=`, `--toolchain`, `--e2sim-toolchain`), then
 `toolchain:` of the board, then `default:`.

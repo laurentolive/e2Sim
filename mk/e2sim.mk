@@ -68,7 +68,7 @@ E2SIM_INCS := -I$(RUNNER_DIR)/include
 $(RUNNER): $(RUNNER_SRCS) $(RUNNER_HDRS) $(E2SIM_TC_MK)
 	@echo e2sim: building $@
 	@$(E2SIM) fs mkdir $(@D)
-	@"$(CC)" $(E2SIM_CFLAGS) -Wconversion $(E2SIM_INCS) -o $@ $(RUNNER_SRCS) \
+	@"$(CC)" $(E2SIM_ARCH_FLAGS) $(E2SIM_CFLAGS) -Wconversion $(E2SIM_INCS) -o $@ $(RUNNER_SRCS) \
 		-static -Wl,--out-implib,$(RUNNER_LIB) -lws2_32
 
 $(RUNNER_LIB): $(RUNNER) ;
@@ -81,7 +81,7 @@ define e2sim_firmware
 $(OUT)/$(1).dll: $(2) $(wildcard $(addsuffix /*.h,$(3))) $(RUNNER_LIB) $$(E2SIM_STAMP)
 	@echo e2sim: building $$@
 	@$$(E2SIM) fs mkdir $$(@D)
-	@"$$(CC)" $$(E2SIM_CFLAGS) $$(E2SIM_FW_FLAGS) -Dmain=e2sim_app_main -DE2SIM_DLL_BASE=$$(E2SIM_DLL_BASE) $(addprefix -D,$(4)) $$(E2SIM_INCS) $(addprefix -I,$(3)) \
+	@"$$(CC)" $$(E2SIM_ARCH_FLAGS) $$(E2SIM_CFLAGS) $$(E2SIM_FW_FLAGS) -Dmain=e2sim_app_main -DE2SIM_DLL_BASE=$$(E2SIM_DLL_BASE) $(addprefix -D,$(4)) $$(E2SIM_INCS) $(addprefix -I,$(3)) \
 		-shared -static -o $$@ $(2) $(RUNNER_LIB) \
 		-Wl,--image-base=$$(E2SIM_DLL_BASE) -Wl,--disable-dynamicbase $$(E2SIM_ARCH_LDFLAGS) \
 		-Wl,-Map=$$(OUT)/$(1).map

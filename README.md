@@ -22,6 +22,7 @@ simulated HAL, clocked by a **deterministic virtual time**, driven by test scrip
 | [Reference](docs/reference.md) | command line, `board.yaml`, Python API, pytest, `e2sim.h` |
 | [Specification](docs/SPEC.md) (French) | architecture and decisions |
 | [Example project](examples/fan) | tests every feature and demonstrates them (`make demo`) |
+| [Development environment](docs/dev-setup.md) | tools to develop e2Sim (Windows, WSL) |
 | [Issues](https://github.com/laurentolive/e2Sim/issues) | work in progress |
 
 ## Layout

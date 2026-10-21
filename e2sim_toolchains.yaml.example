@@ -14,3 +14,4 @@ toolchains:
     path: [C:/Dev/Tools/msys64/ucrt64/bin]
 
 default: host32
+# a toolchain may add options to every compile / link: flags: [-m32]

@@ -24,6 +24,7 @@ d'autres firmwares.
 | [Référence](docs/reference.md) (anglais) | ligne de commande, `board.yaml`, API Python, pytest, `e2sim.h` |
 | [Spécification](docs/SPEC.md) | architecture et décisions |
 | [Projet exemple](examples/fan) | teste toutes les fonctionnalités et en fait la démo (`make demo`) |
+| [Environnement de développement](docs/dev-setup.fr.md) | outils pour développer e2Sim (Windows, WSL) |
 | [Tickets](https://github.com/laurentolive/e2Sim/issues) | travail en cours |
 
 ## Arborescence
