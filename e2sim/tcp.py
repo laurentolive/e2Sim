@@ -100,4 +100,8 @@ class TcpServer:
             if self._client is not None:
                 self._client.close()
                 self._client = None
+        try:  # Linux: close() alone leaves the port listening while the accept thread waits
+            self._srv.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         self._srv.close()
