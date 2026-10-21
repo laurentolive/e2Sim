@@ -96,6 +96,8 @@ class Instance:
             shm = ShmLink(None if self.connect_port else self.timeout_s)
             if self.proc is not None:
                 shm.process = int(self.proc._handle)  # Windows only (transport shm)
+            elif self.pid:
+                shm.watch_pid(self.pid)  # debugger: end of the session = end of the runner
         w.str(shm.name if shm else "").u32(os.getpid())
         self.link.send(proto.MSG_CONFIG, bytes(w.b))
         if shm is not None:  # the runner switches to the shared memory after CONFIG

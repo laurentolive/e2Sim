@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import toolchains
+from . import proto, toolchains
 
 
 def cmd_fs(args) -> int:
@@ -205,6 +205,10 @@ def cmd_gui(args) -> int:
             gui.serve(open_browser=not args.no_browser, announce=True)
         except KeyboardInterrupt:
             pass
+        except proto.LinkError as e:
+            if not args.connect:
+                raise
+            print(f"e2sim: the firmware started by the debugger ended ({e})", flush=True)
     return 0
 
 

@@ -23,6 +23,9 @@ _k32.SetEvent.argtypes = [wintypes.HANDLE]
 _k32.WaitForMultipleObjects.argtypes = [wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE), wintypes.BOOL, wintypes.DWORD]
 _k32.WaitForMultipleObjects.restype = wintypes.DWORD
 _k32.CloseHandle.argtypes = [wintypes.HANDLE]
+_k32.OpenProcess.restype = wintypes.HANDLE
+_k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+SYNCHRONIZE = 0x00100000
 _counter = itertools.count()
 INFINITE = 0xFFFFFFFF
 
@@ -37,6 +40,13 @@ class ShmLink:
             raise proto.LinkError(f"CreateEvent failed ({ctypes.get_last_error()})")
         self.timeout_ms = INFINITE if timeout_s is None else int(timeout_s * 1000)
         self.process = None  # handle of the runner: its end is seen at once
+        self._own_process = False
+
+    def watch_pid(self, pid: int):
+        """Runner not started by the host (debugger): its end is seen through its pid."""
+        h = _k32.OpenProcess(SYNCHRONIZE, False, pid)
+        if h:
+            self.process, self._own_process = h, True
 
     def send(self, msg_type: int, payload: bytes = b""):
         n = len(payload) + 1
@@ -62,3 +72,6 @@ class ShmLink:
             self.mm = None
             _k32.CloseHandle(self.h2r)
             _k32.CloseHandle(self.r2h)
+            if self._own_process:
+                _k32.CloseHandle(self.process)
+                self.process, self._own_process = None, False
