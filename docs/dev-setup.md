@@ -48,8 +48,9 @@ Notes:
 
 ## WSL (Linux port, sanitizers)
 
-1. In an administrator PowerShell: `wsl --install -d Ubuntu-24.04`, reboot, create the Linux user.
-2. In Ubuntu, from the repository (`/mnt/c/Dev/esquaresoft/e2Sim`):
+1. In an administrator PowerShell: `wsl --install -d Ubuntu-24.04` or `wsl --install -d Debian` (Debian 12:
+   Python 3.11, gcc 12, same packages), reboot, create the Linux user.
+2. In the Linux distribution, from the repository (`/mnt/c/Dev/esquaresoft/e2Sim`):
    ```
    bash tools/setup-wsl.sh
    ```

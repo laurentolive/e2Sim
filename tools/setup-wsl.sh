@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2Sim - development environment in WSL (Ubuntu 24.04): Linux port and sanitizers (docs/dev-setup.md)
+# e2Sim - development environment in WSL (Ubuntu 24.04 or Debian 12): Linux port and sanitizers (docs/dev-setup.md)
 set -euo pipefail
 
 sudo apt-get update
