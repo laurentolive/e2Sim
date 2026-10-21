@@ -11,7 +11,7 @@ Command line, configuration files, Python API, pytest plugin and target API. Tut
 | Command | Use |
 |---|---|
 | `run BOARD [--toolchain T] [--duration S] [--power-on] [--snapshot PORT[=file.png]] [--connect PORT]` | run a board or a system, as fast as possible for `--duration` virtual seconds, else in real time (Ctrl+C) |
-| `gui BOARD [--port 8080] [--power-on] [--no-browser] [--toolchain T]` | web GUI, real time ×0.1 / ×1 / ×10 / max, pause, step |
+| `gui BOARD [--port 8080] [--power-on] [--no-browser] [--toolchain T] [--connect PORT]` | web GUI, real time ×0.1 / ×1 / ×10 / max, pause, step; `--connect`: firmware started by the debugger |
 | `connect BOARD [--port 47600] [--power-on]` | wait for a runner started by the debugger, then real time |
 | `replay FILE.e2simrec [--toolchain T] [--connect PORT]` | send a record again, check the outputs are the same (exit 1 if not) |
 | `license [status\|choose\|activate [KEY]\|deactivate\|check\|buy\|portal]` | license |

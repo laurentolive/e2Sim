@@ -187,9 +187,11 @@ def cmd_gui(args) -> int:
     from .sim import Sim
 
     license_text = _license()  # dialogs before the firmware and the page
-    with Sim(args.board, toolchain=args.toolchain) as sim:
+    with Sim(args.board, toolchain=args.toolchain, connect=args.connect) as sim:
         gui = Gui(sim, port=args.port)
         gui.license = license_text
+        if args.connect:
+            print(f"e2sim: waiting for the firmware on 127.0.0.1:{args.connect} ...", flush=True)
         sim.start()
         if args.power_on:
             sim.power_on()
@@ -277,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--power-on", action="store_true", help="power the firmware at start (power latch boards)")
     p.add_argument("--no-browser", action="store_true")
+    p.add_argument("--connect", type=int, metavar="PORT", help="wait for the runner launched by the debugger")
     p.set_defaults(func=cmd_gui)
 
     p = sub.add_parser("replay", help="send a record (.e2simrec) again, check the outputs are the same")
