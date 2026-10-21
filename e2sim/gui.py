@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import queue
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -38,6 +39,17 @@ def image_size(path: Path) -> tuple[int, int]:
         return round(float(vb.group(1))), round(float(vb.group(2)))
     raise ValueError(f"{path}: size of the image unknown")
 STREAM_TAIL = 8192
+
+
+class _Server(ThreadingHTTPServer):
+    """No address reuse: on Windows, SO_REUSEADDR lets a second server bind a port already in use (the browser
+    then reaches the other one); the bind must fail instead."""
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 class Gui:
@@ -184,8 +196,9 @@ class Gui:
         return {}
 
     # -- loop -------------------------------------------------------------------
-    def serve(self, open_browser: bool = False, duration_s: float | None = None):
-        """Serve the page and run the simulation in this thread until quit (Ctrl+C or {"op": "quit"})."""
+    def serve(self, open_browser: bool = False, duration_s: float | None = None, announce: bool = False):
+        """Serve the page and run the simulation in this thread until quit (Ctrl+C or {"op": "quit"}).
+        Port in use: another free port, announced on the console."""
         gui = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -231,8 +244,16 @@ class Gui:
 
         self.sim.start()
         self._layout = json.dumps(self.layout()).encode()
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", self.port), Handler)
+        try:
+            self.httpd = _Server(("127.0.0.1", self.port), Handler)
+        except OSError:
+            if self.port == 0:
+                raise
+            print(f"e2sim: port {self.port} already in use, GUI on another port", flush=True)
+            self.httpd = _Server(("127.0.0.1", 0), Handler)
         self.port = self.httpd.server_address[1]
+        if announce:
+            print(f"e2sim: GUI on http://127.0.0.1:{self.port}/  (Ctrl+C to stop)", flush=True)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         if open_browser:
             import webbrowser

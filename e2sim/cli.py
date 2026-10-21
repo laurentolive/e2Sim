@@ -196,9 +196,8 @@ def cmd_gui(args) -> int:
         for st in sim.instances:
             if st.escope is not None:
                 print(f"e2sim: {st.name}: eScope on TCP:127.0.0.1,{st.escope.port}", flush=True)
-        print(f"e2sim: GUI on http://127.0.0.1:{args.port}/  (Ctrl+C to stop)", flush=True)
         try:
-            gui.serve(open_browser=not args.no_browser)
+            gui.serve(open_browser=not args.no_browser, announce=True)
         except KeyboardInterrupt:
             pass
     return 0
