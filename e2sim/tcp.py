@@ -9,10 +9,13 @@ import threading
 class TcpServer:
     def __init__(self, port: int = 0, name: str = ""):
         self.name = name
-        self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._srv.bind(("127.0.0.1", port))
-        self._srv.listen(1)
+        try:
+            self._srv = self._listen(port)
+        except OSError:
+            if port == 0:
+                raise
+            self._srv = self._listen(0)  # fixed port of the board taken (other program, other simulation)
+            print(f"e2sim: {name}: port {port} already in use, port {self._srv.getsockname()[1]} used", flush=True)
         self.port = self._srv.getsockname()[1]
         self._client: socket.socket | None = None
         self._rx = bytearray()
@@ -21,6 +24,21 @@ class TcpServer:
         self._closed = False
         self._thread = threading.Thread(target=self._accept_loop, name=f"e2sim-tcp-{name}", daemon=True)
         self._thread.start()
+
+    @staticmethod
+    def _listen(port: int) -> socket.socket:
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):  # Windows: SO_REUSEADDR would share a port already listened
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:  # POSIX: rebind a fixed port at once after a restart
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            srv.bind(("127.0.0.1", port))
+            srv.listen(1)
+        except OSError:
+            srv.close()
+            raise
+        return srv
 
     def _accept_loop(self):
         while not self._closed:

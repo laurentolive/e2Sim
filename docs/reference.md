@@ -76,7 +76,7 @@ lists the declared firmwares.
 | `power: { mode, button, hold, hold_ms }` | `auto` | `auto`: on at start; `latch`: on while `button` (input) or `hold` (output) is 1, kept `hold_ms` (10); `manual` |
 | `ports` | | see below |
 | `models` | | `- { class: module.Class, name, ports: { attr: PORT }, params: { … } }` |
-| `escope: { port, period_us, enabled }` | auto port, 1000, true | eScope V3 endpoint of the host |
+| `escope: { port, period_us, enabled }` | auto port, 1000, true | eScope V3 endpoint of the host; a fixed `port` lets an eScope workspace be reused (port taken: another one, printed on the console) |
 | `gui: { skin, widgets: [ { port, at, size, label, widget, range, zoom } ] }` | | `skin`: image of the product (SVG or PNG, relative to the board); a widget with `at: [x, y]` (center, pixels of the image) and `size: [w, h]` is placed on it: display, key (input bit, hold to press), LED (output bit). Without `at`: hints for the panel (`widget: switch`, slider `range`, display `zoom`) |
 
 Ports:
@@ -91,7 +91,7 @@ Ports:
 | `framebuffer: { w, h, format }` | block shown as a display (`RGB565`) |
 | `size`, `persist`, `fill` | block size; persistent in `<work_dir>/<instance>.<port>.nvm.bin`; erased value (0xFF) |
 | `cost_ns` | virtual time of an `xfer` transaction |
-| `tcp` | stream relayed to a local TCP server (0: automatic port) |
+| `tcp` | stream relayed to a local TCP server (0: automatic port; fixed port taken: another one, printed) |
 | `baud` | stream line rate (10 bits per byte), both directions |
 
 ## system.yaml
