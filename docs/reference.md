@@ -6,7 +6,7 @@ Command line, configuration files, Python API, pytest plugin and target API. Tut
 ## Command line
 
 `e2sim <command>` (installed package) or `python e2sim_cli.py <command>` (repository). Exit code: 0 ok, 1 failure,
-2 error.
+2 error. `e2sim --version`: version of the package, of the target API and of the runner protocol.
 
 | Command | Use |
 |---|---|
@@ -60,7 +60,8 @@ Builds `$(BUILD)/<toolchain>/NAME.dll` (+ `.map`) and `e2sim_runner.exe`. Variab
 counters, written at each unload of the DLL and added up; the DLLs are rebuilt when the options change), `BUILD` (default
 `build`), `E2SIM_CFLAGS` (default `-std=c11 -g3 -O0 -funsigned-char` + warnings), `E2SIM_DLL_BASE` (default
 `0x10000000`). The sources are built with `-Dmain=e2sim_app_main` and `-DE2SIM_DLL_BASE=…`. `$(E2SIM_FIRMWARES)`
-lists the declared firmwares.
+lists the declared firmwares. `target/src/e2sim_fw.c` is compiled into every firmware: it records the API version
+(below).
 
 ## board.yaml
 
@@ -179,6 +180,10 @@ Registered by the package (`pytest11`), or `pytest_plugins = ["e2sim.pytest_plug
 `note` (`text`), `quit`.
 
 ## Target API (e2sim.h)
+
+Version: `E2SIM_API_VERSION_MAJOR`, `E2SIM_API_VERSION_MINOR`. The runner reads the version the firmware was built
+with and the host refuses another major version (or a firmware built without it) with a message asking to rebuild;
+a minor version only adds functions.
 
 | Function | |
 |---|---|

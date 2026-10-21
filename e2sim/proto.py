@@ -6,7 +6,24 @@ import socket
 import struct
 from dataclasses import dataclass, field
 
-WIRE_VERSION = 4
+WIRE_VERSION = 5
+API_VERSION = (1, 0)  # e2sim.h: E2SIM_API_VERSION_MAJOR, _MINOR
+
+
+def api_str(v: int) -> str:
+    return f"{v >> 16}.{v & 0xFFFF}"
+
+
+def check_api(name: str, fw: int, runner: int):
+    """API versions announced in HELLO: firmware (e2sim_fw.c) and runner, against the host."""
+    if runner >> 16 != API_VERSION[0]:
+        raise LinkError(f"{name}: runner built with e2Sim API {api_str(runner)}, host {API_VERSION[0]}.{API_VERSION[1]}: "
+                        "rebuild (make) with this e2Sim")
+    if fw == 0:
+        raise LinkError(f"{name}: firmware without e2Sim API version (built before e2Sim 1.0, or without mk/e2sim.mk): "
+                        "rebuild (make)")
+    if fw >> 16 != runner >> 16:
+        raise LinkError(f"{name}: firmware built with e2Sim API {api_str(fw)}, runner {api_str(runner)}: rebuild (make)")
 
 MSG_HELLO = 0x01
 MSG_DONE = 0x02

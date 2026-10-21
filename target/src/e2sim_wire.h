@@ -10,7 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define WIRE_VERSION 4u
+#define WIRE_VERSION 5u
 #define WIRE_SHM_SIZE (16u << 20) /* one message at most, each direction */
 
 /* runner -> host */

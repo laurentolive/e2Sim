@@ -23,7 +23,11 @@ extern "C" {
 #define E2SIM_API __attribute__((visibility("default"))) /* runner linked with -rdynamic */
 #endif
 
-#define E2SIM_VERSION 1u
+/* version of this API: a firmware built with another major version is refused by the host (mk/e2sim.mk
+   compiles the version into the firmware, target/src/e2sim_fw.c); a minor version only adds */
+#define E2SIM_API_VERSION_MAJOR 1u
+#define E2SIM_API_VERSION_MINOR 0u
+#define E2SIM_API_VERSION ((E2SIM_API_VERSION_MAJOR << 16) | E2SIM_API_VERSION_MINOR)
 
 /* port classes: a port is addressed by (class, index of the HAL) */
 typedef enum

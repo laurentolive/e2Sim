@@ -3,7 +3,7 @@
 from .model import Bit, Block, Event, Model, Param, Stream, Value, Xfer, every
 from .sim import Port, Sim, SimError, SimTimeout
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 
 def requirement(*ids: str):

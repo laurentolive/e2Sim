@@ -25,6 +25,7 @@ d'autres firmwares.
 | [Spécification](docs/SPEC.md) | architecture et décisions |
 | [fan-demo](https://github.com/laurentolive/fan-demo) | projet exemple, dépôt séparé : teste toutes les fonctionnalités et en fait la démo |
 | [Environnement de développement](docs/dev-setup.fr.md) | outils pour développer e2Sim (Windows, WSL) |
+| [Changelog](CHANGELOG.md) (anglais) | versions, ruptures de compatibilité |
 | [Tickets](https://github.com/laurentolive/e2Sim/issues) | travail en cours |
 
 ## Arborescence

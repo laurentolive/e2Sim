@@ -81,6 +81,7 @@ RUNNER_LIB  := $(if $(E2SIM_WIN),$(OUT)/libe2sim_runner.a)
 RUNNER_LINK := $(if $(E2SIM_WIN),-static -Wl$(comma)--out-implib$(comma)$(RUNNER_LIB) -lws2_32,-rdynamic -ldl -lpthread)
 
 E2SIM_INCS := -I$(RUNNER_DIR)/include
+E2SIM_FW_SRCS := $(RUNNER_DIR)/src/e2sim_fw.c  # API version, compiled into every firmware
 
 $(RUNNER): $(RUNNER_SRCS) $(RUNNER_HDRS) $(E2SIM_TC_MK)
 	@echo e2sim: building $@
@@ -97,11 +98,11 @@ runner: $(RUNNER)
 #################################
 # firmware DLL: $(call e2sim_firmware,name,sources,include dirs,defines)
 define e2sim_firmware
-$(OUT)/$(1)$(E2SIM_LIB_EXT): $(2) $(wildcard $(addsuffix /*.h,$(3))) $(RUNNER_LIB) $$(E2SIM_STAMP)
+$(OUT)/$(1)$(E2SIM_LIB_EXT): $(2) $(wildcard $(addsuffix /*.h,$(3))) $(RUNNER_LIB) $$(E2SIM_FW_SRCS) $$(RUNNER_HDRS) $$(E2SIM_STAMP)
 	@echo e2sim: building $$@
 	@$$(E2SIM) fs mkdir $$(@D)
 	@"$$(CC)" $$(E2SIM_ARCH_FLAGS) $$(E2SIM_CFLAGS) $$(E2SIM_FW_FLAGS) -Dmain=e2sim_app_main -DE2SIM_DLL_BASE=$$(E2SIM_DLL_BASE) $(addprefix -D,$(4)) $$(E2SIM_INCS) $(addprefix -I,$(3)) \
-		-o $$@ $(2) $$(E2SIM_FW_LINK) -Wl,-Map=$$(OUT)/$(1).map
+		-o $$@ $(2) $$(E2SIM_FW_SRCS) $$(E2SIM_FW_LINK) -Wl,-Map=$$(OUT)/$(1).map
 
 .PHONY: $(1)
 $(1): $(OUT)/$(1)$(E2SIM_LIB_EXT) $(RUNNER)

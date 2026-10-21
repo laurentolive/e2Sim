@@ -110,6 +110,7 @@ static struct
     void *dll;
     uint64_t dll_base;      /* load address of the firmware */
     uint64_t dll_link_base; /* its link address (symbols) */
+    uint32_t fw_api;        /* E2SIM_API_VERSION the firmware was built with, 0: unknown (e2sim_fw.c missing) */
     app_main_t app_main;
 
     /* hardware */
@@ -164,6 +165,8 @@ static void dll_load(void)
     }
     g.dll_base = os_lib_base(g.dll);
     g.dll_link_base = os_lib_link_base(g.dll);
+    const uint32_t *api = (const uint32_t *)os_lib_sym(g.dll, "e2sim_fw_api_version");
+    g.fw_api = (api != NULL) ? *api : 0u; /* checked by the host (HELLO) */
     void *sym = os_lib_sym(g.dll, "e2sim_app_main");
     memcpy(&g.app_main, &sym, sizeof(g.app_main));
     if (g.app_main == NULL)
@@ -1174,6 +1177,8 @@ int main(int argc, char **argv)
     wbuf_u64(&g.tx, g.dll_base);
     wbuf_u32(&g.tx, os_pid());
     wbuf_str(&g.tx, g.dll_path);
+    wbuf_u32(&g.tx, g.fw_api);
+    wbuf_u32(&g.tx, E2SIM_API_VERSION);
     if (wire_send(MSG_HELLO, &g.tx) != 0)
     {
         fatal("host link lost");

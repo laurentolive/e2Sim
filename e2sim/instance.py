@@ -85,6 +85,9 @@ class Instance:
         self.ptr_size = r.u8()
         self.module_base = r.u64()
         self.pid = r.u32()
+        r.str()  # path of the firmware
+        self.fw_api, self.runner_api = r.u32(), r.u32()
+        proto.check_api(self.name, self.fw_api, self.runner_api)
         w = proto.Writer().u64(self.yield_cost_ns).u16(len(self.blocks_cfg))
         for idx, fill, path in self.blocks_cfg:
             w.u16(idx).u8(fill).str(path)

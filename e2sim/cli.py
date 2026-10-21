@@ -227,7 +227,8 @@ def main(argv: list[str] | None = None) -> int:
     from . import __version__
 
     ap = argparse.ArgumentParser(prog="e2sim", description="e2Sim - firmware simulation on PC")
-    ap.add_argument("--version", action="version", version=f"e2sim {__version__}")
+    ap.add_argument("--version", action="version", version=f"e2sim {__version__} (API {proto.API_VERSION[0]}."
+                    f"{proto.API_VERSION[1]}, protocol {proto.WIRE_VERSION})")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("coverage", help="coverage of the firmware (build COVERAGE=1, then the tests)")

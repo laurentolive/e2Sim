@@ -23,6 +23,7 @@ simulated HAL, clocked by a **deterministic virtual time**, driven by test scrip
 | [Specification](docs/SPEC.md) (French) | architecture and decisions |
 | [fan-demo](https://github.com/laurentolive/fan-demo) | example project, separate repository: tests every feature and demonstrates them |
 | [Development environment](docs/dev-setup.md) | tools to develop e2Sim (Windows, WSL) |
+| [Changelog](CHANGELOG.md) | versions, compatibility breaks |
 | [Issues](https://github.com/laurentolive/e2Sim/issues) | work in progress |
 
 ## Layout
