@@ -109,7 +109,11 @@ Seule la couche la plus basse change : l'**adaptateur HAL** (§5.2) remplace l'i
   - **chaque appel HAL** (via l'adaptateur) → `e2sim_yield()` ;
   - **idle / WFI / refresh watchdog** → `e2sim_idle()` : le temps saute au prochain événement ;
   - macro `E2SIM_YIELD()` optionnelle (vide sur cible) pour une boucle d'attente qui n'appelle aucune HAL.
-- Implémentation : Windows Fibers (`CreateFiber/SwitchToFiber`), abstraite pour un portage ucontext (Linux) futur.
+- Implémentation : couche `e2sim_os.h` du runner. Windows : Fibers (`CreateFiber/SwitchToFiber`), DLL, mappings
+  nommés. Linux : ucontext (avec les annotations de fibers d'AddressSanitizer), `.so` chargée par `dlopen` (le runner
+  exporte l'API avec `-rdynamic`), blocs en fichiers (`/dev/shm` ou fichier NVM), mémoire vérifiée par
+  `/proc/self/maps`, pile d'une boucle sans yield capturée par signal. Sous Linux, la `.so` est chargée à une adresse
+  aléatoire : le host relocalise (`e2sim_addr_to_ptr()` côté firmware) ; transport host ↔ runner en TCP.
 
 ### 4.2 Interruptions
 - Les ISR sont exécutées **dans le contexte scheduler**, à un yield point, quand leur date ≤ temps courant.
@@ -684,7 +688,8 @@ cité existe, chaque test de l'exemple porte une exigence.
 | eScope embarqué + relais TCP d'un stream | `fan_motor` sur `UART_SCOPE` ; `UART_DEBUG` en terminal TCP | T15 | 3 |
 | GUI web générée, API JSON, image du produit (`gui: skin`) | `system.yaml`, face avant de l'IHM | GUI | toute la démo |
 | Rapport Excel exigences → tests | `pytest --e2sim-xlsx` | selftest (test_report_statuses) | — |
-| Double architecture | campagne en `host32` et `host64` | CI (test-all) | — |
+| Double architecture | campagne en `host32` et `host64` (Windows), `linux32` et `linux64` (Linux) | CI (test-all) | — |
+| Linux et sanitizers (ASan, UBSan, LSan) | campagne complète en `linux64-asan` ; débordement volontaire du firmware de selftest | selftest (test_sanitizer_report) | — |
 | Debug VS Code | `launch` sur un firmware, breakpoint conservé après reset | manuel | annexe du guide |
 | Licence | dialogues, bandeau de la GUI, propriété JUnit | selftest (test_license_demonstration) | toute la démo |
 

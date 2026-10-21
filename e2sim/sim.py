@@ -274,6 +274,16 @@ class InstanceState:
             done = self.inst.recv_done()
         except proto.HangError as e:
             raise SimError(self.hang_report(e)) from None
+        except proto.LinkError:
+            if self.inst.proc is not None:
+                try:
+                    self.inst.proc.wait(timeout=5)
+                except Exception:  # noqa: BLE001
+                    pass
+                report = self.inst.sanitizer_report()
+                if report:
+                    raise SimError(f"{self.name}: the firmware was stopped by a sanitizer\n{report}") from None
+            raise
         self.apply(done)
         return done.end if quantum_ns else until_ns
 

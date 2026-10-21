@@ -34,7 +34,15 @@ toolchains:
 default: host32
 ```
 
-Optional per toolchain: `flags: [-m32]` (added to every compile and link).
+Optional per toolchain: `flags: [-m32]` (added to every compile and link). Quote an option that contains a comma:
+`flags: ["-fsanitize=address,undefined", -fno-omit-frame-pointer]`.
+
+Platforms: Windows (firmware `.dll`, runner `e2sim_runner.exe`, shared memory transport) and Linux (firmware `.so`,
+runner `e2sim_runner`, TCP transport). A board naming `….dll` uses the `.so` on Linux.
+
+Sanitizers: with `-fsanitize=…` the host starts the runner with `ASAN_OPTIONS` / `UBSAN_OPTIONS` / `LSAN_OPTIONS`
+(exit code 86, report file in the work directory); a memory error, undefined behaviour or leak becomes a `SimError`
+with the report and the stack of the firmware.
 
 Search: `E2SIM_TOOLCHAINS`, then `e2sim_toolchains.yaml` in the current directory and its parents, then
 `~/.e2sim/e2sim_toolchains.yaml`. Choice: command line (`TOOLCHAIN=`, `--toolchain`, `--e2sim-toolchain`), then
@@ -186,5 +194,6 @@ Registered by the package (`pytest11`), or `pytest_plugins = ["e2sim.pytest_plug
 | `e2sim_on_input(cls, idx, isr, ctx)` | interrupt on an input change, a reception, an event |
 | `e2sim_irq_disable()`, `e2sim_irq_enable()` | critical sections |
 | `e2sim_mem_valid(ptr, size, write)` | memory check (eScope embedded: `ESCOPE_ADDR_IS_VALID`) |
+| `e2sim_addr_to_ptr(link_addr)` | link address of the firmware → address in the process (eScope embedded: `ESCOPE_ADDR_TO_PTR`) |
 | `e2sim_log(level, fmt, …)` | log to the host |
 | `E2SIM_YIELD()` | yield point in a busy loop without HAL call |

@@ -39,7 +39,9 @@ e2sim_toolchains.yaml.example   toolchains of the machine (template)
 
 ## Requirements
 
-- Windows, Python 3.10+ with `pyyaml`, `pytest` (`openpyxl` for the Excel report).
+- Windows, or Linux (tested on Debian 13 in WSL: gcc, gdb, `gcc-multilib`), Python 3.10+ with `pyyaml`, `pytest`
+  (`openpyxl` for the Excel report). On Linux the firmware is a `.so`, and a toolchain with
+  `-fsanitize=address,undefined` runs the whole campaign under the sanitizers (memory errors reported with their stack).
 - GNU make, MSYS2 with `mingw-w64-i686-gcc`, `mingw-w64-i686-gdb` (host32) and/or `mingw-w64-ucrt-x86_64-gcc`,
   `mingw-w64-ucrt-x86_64-gdb` (host64). gdb is also used by the host (symbols, `sim.var()`).
 - Copy `e2sim_toolchains.yaml.example` to `e2sim_toolchains.yaml` (in the project, in `~/.e2sim/`, or set

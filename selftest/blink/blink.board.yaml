@@ -4,3 +4,4 @@ firmware: build/{toolchain}/blink.dll
 ports:
   OUT:  { class: GPIO, idx: 1, type: bit, dir: out }
   HANG: { class: GPIO, idx: 4, type: bit, dir: in }
+  OVERFLOW: { class: GPIO, idx: 5, type: bit, dir: in }

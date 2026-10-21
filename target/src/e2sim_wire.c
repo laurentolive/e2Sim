@@ -1,6 +1,9 @@
 /*
  * e2Sim - host <-> runner wire protocol (MIT)
  */
+#ifndef _WIN32
+#define _DEFAULT_SOURCE /* POSIX declarations with -std=c11 */
+#endif
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>

@@ -59,5 +59,11 @@ Notes:
    creates `~/.e2sim/e2sim_toolchains.yaml` with the `linux64` (x86_64) and `linux32` (`-m32`) toolchains.
 3. Work in the Linux file system for speed (`git clone` in `~/`), or directly in `/mnt/c/...` (slower).
 
-The Linux port itself (ucontext instead of fibers, `dlopen`, `shm_open`, `-fsanitize=address,undefined`) is the
-subject of ticket #20.
+Then, in the repository (the Windows `e2sim_toolchains.yaml` at its root would be found first):
+```
+export E2SIM_TOOLCHAINS=~/.e2sim/e2sim_toolchains.yaml E2SIM_NO_DIALOG=1
+cd selftest/blink && make && make TOOLCHAIN=linux32 && make TOOLCHAIN=linux64-asan && cd ..
+python3 -m pytest -q . && python3 -m pytest -q . --e2sim-toolchain linux64-asan
+cd ../examples/fan && make test-all && make TOOLCHAIN=linux64-asan test
+```
+Tested (2026-10-21): Debian 13, gcc 14.2, gdb 16.3, make 4.4, Python 3.13.

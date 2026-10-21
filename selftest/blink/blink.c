@@ -20,6 +20,13 @@ static void __attribute__((noinline)) hang_here(void)
     }
 }
 
+static int table[4];
+
+static void __attribute__((noinline)) overflow_here(int n)
+{
+    table[3 + n] = n; /* out of bounds for n >= 1 */
+}
+
 static void tick(void *ctx)
 {
     (void)ctx;
@@ -49,6 +56,10 @@ int main(void)
         if (e2sim_in(E2SIM_GPIO, 4) != 0)
         {
             hang_here();
+        }
+        if (e2sim_in(E2SIM_GPIO, 5) != 0)
+        {
+            overflow_here(e2sim_in(E2SIM_GPIO, 5)); /* bug on purpose: found by AddressSanitizer */
         }
         if (e2sim_in(E2SIM_GPIO, 3) != 0)
         {

@@ -61,5 +61,11 @@ Remarques :
 3. Travailler dans le système de fichiers Linux pour la vitesse (`git clone` dans `~/`), ou directement dans
    `/mnt/c/...` (plus lent).
 
-Le portage Linux lui-même (ucontext à la place des fibers, `dlopen`, `shm_open`,
-`-fsanitize=address,undefined`) est l'objet du ticket #20.
+Ensuite, dans le dépôt (le `e2sim_toolchains.yaml` Windows à sa racine serait trouvé en premier) :
+```
+export E2SIM_TOOLCHAINS=~/.e2sim/e2sim_toolchains.yaml E2SIM_NO_DIALOG=1
+cd selftest/blink && make && make TOOLCHAIN=linux32 && make TOOLCHAIN=linux64-asan && cd ..
+python3 -m pytest -q . && python3 -m pytest -q . --e2sim-toolchain linux64-asan
+cd ../examples/fan && make test-all && make TOOLCHAIN=linux64-asan test
+```
+Testé (2026-10-21) : Debian 13, gcc 14.2, gdb 16.3, make 4.4, Python 3.13.

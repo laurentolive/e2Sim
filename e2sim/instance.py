@@ -10,6 +10,9 @@ from typing import Callable
 
 from . import pe, proto
 
+# exit code of a runner stopped by a sanitizer (ASan, UBSan, LSan): set by the host through *SAN_OPTIONS
+SANITIZER_EXIT = 86
+
 # xfer handler: (cls, idx, t_ns, tx bytes) -> (rx bytes, cost_ns)
 XferHandler = Callable[[int, int, int, bytes], "tuple[bytes, int]"]
 
@@ -61,7 +64,7 @@ class Instance:
             self.proc = subprocess.Popen(
                 [str(self.runner), "--dll", str(self.dll), "--host", f"127.0.0.1:{port}",
                  "--hang-timeout", str(round(self.hang_timeout_s * 1000))],
-                stdout=out, stderr=subprocess.STDOUT if out else None)
+                stdout=out, stderr=subprocess.STDOUT if out else None, env=self._sanitizer_env())
             srv.settimeout(self.timeout_s)
         else:
             srv.settimeout(None)  # firmware launched from the debugger, whenever it comes
@@ -99,24 +102,57 @@ class Instance:
             self.tcp = self.link
             self.link = shm
 
+    def _sanitizer_env(self) -> dict:
+        """Sanitizer reports of a firmware built with -fsanitize: own exit code, report file (ignored otherwise)."""
+        env = dict(os.environ)
+        if self.log_dir is None:
+            return env
+        self.sanitizer_log = Path(self.log_dir) / f"{self.name}.sanitizer"
+        common = f"exitcode={SANITIZER_EXIT}:log_path={self.sanitizer_log.as_posix()}"
+        for var, extra in (("ASAN_OPTIONS", "detect_leaks=1"), ("UBSAN_OPTIONS", "print_stacktrace=1:halt_on_error=1"),
+                           ("LSAN_OPTIONS", "")):
+            env[var] = ":".join(x for x in (env.get(var, ""), common, extra) if x)
+        return env
+
+    def sanitizer_report(self) -> str | None:
+        """Report of the sanitizer when the runner was stopped by one, else None."""
+        if self.proc is None or self.proc.poll() != SANITIZER_EXIT:
+            return None
+        log = getattr(self, "sanitizer_log", None)
+        texts = [f.read_text(errors="replace") for f in sorted(log.parent.glob(log.name + "*"))] if log else []
+        out = Path(self.log_dir) / f"{self.name}.stdout.log" if self.log_dir else None
+        if out is not None and out.is_file():  # UBSan writes its reports on the error output of the runner
+            text = out.read_text(errors="replace")
+            marks = [text.find(m) for m in ("runtime error:", "ERROR: AddressSanitizer", "ERROR: LeakSanitizer")]
+            first = min((m for m in marks if m >= 0), default=-1)
+            if first >= 0:
+                texts.insert(0, text[text.rfind("\n", 0, first) + 1:])
+        lines = [ln for ln in "\n".join(texts).splitlines()
+                 if ln.strip() and "doesn't fully support makecontext" not in ln] or ["(no report)"]
+        return "\n".join(lines[:60] + (["..."] if len(lines) > 60 else []))
+
     def stop(self):
         if self.link is not None:
             try:
                 self.link.send(proto.MSG_QUIT)
             except (OSError, ValueError, proto.LinkError):
                 pass
+        report = None
         if self.proc is not None:
             try:
                 self.proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
                 self.proc.wait()
+            report = self.sanitizer_report()  # e.g. a leak, reported at the end of the process
             self.proc = None
         for link in (self.link, getattr(self, "tcp", None)):
             if link is not None:
                 link.close()
         self.link = None
         self.tcp = None
+        if report:
+            raise proto.LinkError(f"{self.name}: sanitizer report\n{report}")
 
     # ------------------------------------------------------------------
     def run(self, until_ns: int, records: bytes, from_ns: int = 0, quantum_ns: int = 0) -> proto.Done:
@@ -170,13 +206,17 @@ class Instance:
             else:
                 raise proto.LinkError(f"{self.name}: unexpected message 0x{t:02x}")
 
+    @property
+    def _mask(self) -> int:
+        return (1 << (8 * self.ptr_size)) - 1
+
     def unrelocate(self, addr: int) -> int:
         """Address in the process -> link address (symbols)."""
-        return addr - self.module_base + self.pe.image_base
+        return (addr - self.module_base + self.pe.image_base) & self._mask
 
     def relocate(self, link_addr: int) -> int:
         """Link address (symbols) -> address in the process."""
-        return link_addr - self.pe.image_base + self.module_base
+        return (link_addr - self.pe.image_base + self.module_base) & self._mask
 
     def next_mem_id(self) -> int:
         self._mem_id += 1

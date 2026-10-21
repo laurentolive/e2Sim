@@ -1,5 +1,6 @@
 """Self-tests of the runner (target side), with the blink firmware, below the Sim API."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,10 @@ def streams(done):
 def test_boot_timer_and_reset(inst):
     d = inst.run(0, bytes([proto.REC_POWER, 1]))
     assert [r[1] for r in d.records if r[0] == "reset"] == ["power_on"]
-    assert inst.module_base == inst.pe.image_base, "fixed image base"
+    if os.name == "nt":
+        assert inst.module_base == inst.pe.image_base, "fixed image base"
+    else:
+        assert inst.module_base != 0, "shared object loaded anywhere: relocated by the host"
 
     outs = []
     for q in range(1, 1201):

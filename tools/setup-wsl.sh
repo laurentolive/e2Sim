@@ -7,7 +7,7 @@ sudo apt-get install -y build-essential gcc g++ gdb make gcc-multilib g++-multil
     python3 python3-pip python3-venv python3-yaml python3-pytest python3-openpyxl git
 
 mkdir -p ~/.e2sim
-if [ ! -f ~/.e2sim/e2sim_toolchains.yaml ]; then
+if [ ! -f ~/.e2sim/e2sim_toolchains.yaml ] || [ "${1:-}" = "--force" ]; then
     cat > ~/.e2sim/e2sim_toolchains.yaml <<'YAML'
 # Toolchains of e2Sim under Linux (WSL)
 toolchains:
@@ -18,6 +18,10 @@ toolchains:
     arch: i686
     prefix: /usr/bin/
     flags: [-m32]
+  linux64-asan:       # sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer
+    arch: x86_64
+    prefix: /usr/bin/
+    flags: ["-fsanitize=address,undefined", -fno-omit-frame-pointer, -fno-sanitize-recover=undefined]
 default: linux64
 YAML
     echo "created ~/.e2sim/e2sim_toolchains.yaml"
