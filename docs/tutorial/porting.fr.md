@@ -4,7 +4,7 @@
 
 But : faire tourner votre firmware sur le PC **sans modifier son code**, le tester avec pytest, le montrer dans
 la GUI web et le déboguer dans VS Code. Seule la couche la plus basse, l'implémentation de votre HAL pour le
-MCU, est remplacée. L'exemple complet utilisé ci-dessous est [examples/fan](../../examples/fan).
+MCU, est remplacée. L'exemple complet utilisé ci-dessous est [fan-demo](https://github.com/laurentolive/fan-demo).
 
 Durée : quelques heures pour un firmware sur une HAL déjà adaptée ; une journée de plus la première fois, pour
 une nouvelle famille de HAL.
@@ -42,7 +42,7 @@ void halGpio_Write(halGpio_t pin, bool level)
 }
 ```
 
-Correspondance des modules usuels (modèle complet : [examples/fan/hal_e2sim](../../examples/fan/hal_e2sim)) :
+Correspondance des modules usuels (modèle complet : [port/e2sim de fan-demo](https://github.com/laurentolive/fan-demo/tree/master/port/e2sim)) :
 
 | HAL | e2Sim |
 |---|---|
@@ -189,9 +189,10 @@ révèle un code non portable (pointeur rangé dans un entier 32 bits…).
 
 ## 7. Debug
 
-1. `e2sim connect board.yaml --port 47600 --power-on` (le host attend le firmware) ;
+1. `e2sim gui board.yaml --connect 47600 --power-on` (la GUI attend le firmware ; `e2sim connect` sans GUI) ;
 2. lancer `build/host32/e2sim_runner.exe --dll build/host32/mon_produit.dll --host 127.0.0.1:47600 --connect-timeout 0`
-   sous gdb (configuration VS Code : [examples/fan/.vscode](../../examples/fan/.vscode)).
+   sous gdb, dans n'importe quel ordre (configuration combinée VS Code : [.vscode de fan-demo](https://github.com/laurentolive/fan-demo/tree/master/.vscode)).
+   La GUI s'arrête avec la session de debug.
 
 Le temps virtuel s'arrête sur un breakpoint : pas de timeout, tout le système est figé. Les breakpoints survivent
 à un reset.

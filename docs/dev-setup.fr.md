@@ -37,7 +37,8 @@ fonctionnent, des versions plus récentes devraient aussi.
    python e2sim_cli.py toolchain list
    cd selftest/blink && make && make TOOLCHAIN=host64 && cd ..
    python -m pytest -q . && python -m pytest -q . --e2sim-toolchain host64
-   cd ../examples/fan && make test-all && make demo-check
+   # projet exemple : fan-demo, avec cette copie de travail (à côté d'e2Sim)
+   cd ../../fan-demo && make E2SIM_ROOT=../e2Sim test-all demo-check
    ```
 
 Remarques :
@@ -66,6 +67,6 @@ Ensuite, dans le dépôt (le `e2sim_toolchains.yaml` Windows à sa racine serait
 export E2SIM_TOOLCHAINS=~/.e2sim/e2sim_toolchains.yaml E2SIM_NO_DIALOG=1
 cd selftest/blink && make && make TOOLCHAIN=linux32 && make TOOLCHAIN=linux64-asan && cd ..
 python3 -m pytest -q . && python3 -m pytest -q . --e2sim-toolchain linux64-asan
-cd ../examples/fan && make test-all && make TOOLCHAIN=linux64-asan test
+cd ../../fan-demo && make E2SIM_ROOT=../e2Sim test-all && make E2SIM_ROOT=../e2Sim TOOLCHAIN=linux64-asan test
 ```
 Testé (2026-10-21) : Debian 13, gcc 14.2, gdb 16.3, make 4.4, Python 3.13.

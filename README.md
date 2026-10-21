@@ -21,7 +21,7 @@ simulated HAL, clocked by a **deterministic virtual time**, driven by test scrip
 | [Porting tutorial](docs/tutorial/porting.en.md) | port a firmware step by step |
 | [Reference](docs/reference.md) | command line, `board.yaml`, Python API, pytest, `e2sim.h` |
 | [Specification](docs/SPEC.md) (French) | architecture and decisions |
-| [Example project](examples/fan) | tests every feature and demonstrates them (`make demo`) |
+| [fan-demo](https://github.com/laurentolive/fan-demo) | example project, separate repository: tests every feature and demonstrates them |
 | [Development environment](docs/dev-setup.md) | tools to develop e2Sim (Windows, WSL) |
 | [Issues](https://github.com/laurentolive/e2Sim/issues) | work in progress |
 
@@ -32,7 +32,6 @@ target/            runner + API e2sim.h (MIT): fiber, virtual time, timers, IRQ,
 e2sim/             Python host: Sim, models, board.yaml, symbols (gdb), pytest plugin, web GUI, CLI
 mk/e2sim.mk        make rules: runner + firmware DLL for the selected toolchain
 e2sim_cli.py       entry point from the repository (python e2sim_cli.py --help)
-examples/fan/      example project (MIT): test bench of every feature + demonstration
 selftest/          self-tests of the runner
 e2sim_toolchains.yaml.example   toolchains of the machine (template)
 ```
@@ -61,12 +60,14 @@ e2sim root          # SDK directory: E2SIM_ROOT of the makefiles
 
 ## Quick start
 
+The example project is [fan-demo](https://github.com/laurentolive/fan-demo) (two boards, every feature, demonstration):
+
 ```
-cd examples/fan
-make                    # default toolchain (host32)
-make test-all           # host32 and host64
+git clone https://github.com/laurentolive/fan-demo.git && cd fan-demo
+python tools/fetch.py   # e2Sim at the version of tools.lock.yaml
+make test-all           # host32 and host64 (linux32 and linux64 on Linux)
 make demo               # demonstration in the web GUI, chapter by chapter
-python ../../e2sim_cli.py gui sim/system.yaml          # both boards: http://127.0.0.1:8080/
+make E2SIM_ROOT=../e2Sim test-all   # against a working copy of e2Sim
 ```
 
 ```python
@@ -80,9 +81,10 @@ def test_power_on(sim):                  # fixture of the e2sim pytest plugin
 
 ## Debug (VS Code)
 
-[examples/fan/.vscode](examples/fan/.vscode): start the task **e2sim connect** (host in real time, waiting for the
-firmware), then the configuration **fan_hmi (host32)**: the runner starts under gdb, the breakpoints of the
-firmware stay valid after a reset.
+`e2sim gui board.yaml --connect 47600` waits for the runner started by the debugger
+(`e2sim_runner --dll … --host 127.0.0.1:47600 --connect-timeout 0`) and ends with the debug session; the
+breakpoints of the firmware stay valid after a reset. Ready-made configurations (one F5 starts the GUI and the
+firmware): `.vscode/` of [fan-demo](https://github.com/laurentolive/fan-demo).
 
 ## License
 
@@ -92,4 +94,4 @@ Checked when `run`, `gui`, `connect`, `replay` start and once per pytest session
 `E2SIM_NO_GUI=1` forces the console.
 
 PC tool (`e2sim/`, `mk/`, `docs/`): [PolyForm Noncommercial 1.0.0](LICENSE.md) + commercial license.
-`target/` and `examples/`: MIT (compiled with the firmware, free to copy).
+`target/`: MIT (compiled with the firmware, free to copy).

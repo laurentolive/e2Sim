@@ -36,7 +36,8 @@ Steps (or run [tools/setup-windows.ps1](../tools/setup-windows.ps1), which does 
    python e2sim_cli.py toolchain list
    cd selftest/blink && make && make TOOLCHAIN=host64 && cd ..
    python -m pytest -q . && python -m pytest -q . --e2sim-toolchain host64
-   cd ../examples/fan && make test-all && make demo-check
+   # example project: fan-demo, against this working copy (next to e2Sim)
+   cd ../../fan-demo && make E2SIM_ROOT=../e2Sim test-all demo-check
    ```
 
 Notes:
@@ -64,6 +65,6 @@ Then, in the repository (the Windows `e2sim_toolchains.yaml` at its root would b
 export E2SIM_TOOLCHAINS=~/.e2sim/e2sim_toolchains.yaml E2SIM_NO_DIALOG=1
 cd selftest/blink && make && make TOOLCHAIN=linux32 && make TOOLCHAIN=linux64-asan && cd ..
 python3 -m pytest -q . && python3 -m pytest -q . --e2sim-toolchain linux64-asan
-cd ../examples/fan && make test-all && make TOOLCHAIN=linux64-asan test
+cd ../../fan-demo && make E2SIM_ROOT=../e2Sim test-all && make E2SIM_ROOT=../e2Sim TOOLCHAIN=linux64-asan test
 ```
 Tested (2026-10-21): Debian 13, gcc 14.2, gdb 16.3, make 4.4, Python 3.13.
